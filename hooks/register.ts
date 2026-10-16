@@ -1,10 +1,9 @@
 import type { Register, SkillPromptInput } from 'claude-code'
 
-const PLUGIN = 'hero-pocock'
-
 // The promoted set, as `.claude-plugin/plugin.json` lists it. A skill that
-// comes from the plugin matches on `pluginName`; this list catches the same
-// skills installed as loose files (skills.sh, `scripts/link-skills.sh`).
+// comes from this plugin matches on `pluginName`, whatever the manifest names
+// the plugin; this list catches the same skills installed as loose files
+// (skills.sh, `scripts/link-skills.sh`).
 const SKILLS = new Set([
   'ask-matt',
   'diagnosing-bugs',
@@ -57,16 +56,16 @@ export const GRILL = `
 This replaces the round format above. Ask each round as AskUserQuestion calls: the question title becomes the \`header\`, the question body becomes the \`question\`, and your recommended answer becomes the first option. Ask the whole frontier in one round, split into successive calls of up to 4 questions. Each option carries its own recommendation, so you do not need to word questions so that "yes" accepts it. The rest of the method holds: recompute the frontier after each round, send sub-agents for facts, and do not act until the user confirms a shared understanding.
 `
 
-// `grilling` at the Skill tool, `hero-pocock:grilling` where the
-// plugin namespaces it.
+// `grilling` at the Skill tool, `<plugin>:grilling` where the plugin
+// namespaces it.
 const bareName = (skill: string) => skill.slice(skill.lastIndexOf(':') + 1)
 
-const isOurs = (e: SkillPromptInput) =>
-  e.pluginName === PLUGIN || (e.pluginName === undefined && SKILLS.has(bareName(e.skill)))
+const isOurs = (plugin: string, e: SkillPromptInput) =>
+  e.pluginName === plugin || (e.pluginName === undefined && SKILLS.has(bareName(e.skill)))
 
 export const register: Register = on => {
   on('skill.prompt', ($, e, next) => {
-    if (!isOurs(e)) return next(e)
+    if (!isOurs($.plugin.name, e)) return next(e)
 
     const addendum = bareName(e.skill) === 'grilling' ? ASK + GRILL : ASK
 

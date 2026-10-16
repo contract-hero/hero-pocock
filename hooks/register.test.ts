@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 
+// The `name` in `.claude-plugin/plugin.json`: the one line that differs upstream.
+const PLUGIN = 'hero-pocock'
+
 const BODY = 'Interview the user relentlessly.'
 const ASK = '## Asking the user (Claude Code)'
 const GRILL = 'This replaces the round format above.'
@@ -9,10 +12,10 @@ describe('skill.prompt', () => {
     on('skill.prompt', ($, e) => ({ text: e.text }))
 
     const { text } = await $.skill.prompt({
-      skill: 'hero-pocock:grilling',
+      skill: `${PLUGIN}:grilling`,
       text: BODY,
       source: 'plugin',
-      pluginName: 'hero-pocock',
+      pluginName: PLUGIN,
     })
 
     expect(text.startsWith(BODY)).toBe(true)
@@ -27,7 +30,7 @@ describe('skill.prompt', () => {
       skill: 'to-tickets',
       text: BODY,
       source: 'plugin',
-      pluginName: 'hero-pocock',
+      pluginName: PLUGIN,
     })
 
     expect(text).toContain(ASK)
