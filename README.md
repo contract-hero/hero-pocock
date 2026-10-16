@@ -1,6 +1,6 @@
 # Hero Pocock
 
-**Alvaro Lillo's version of [Matt Pocock's skills](https://github.com/mattpocock/skills).** The same skills, tuned for the Contract Hero work-stream and published in the [Contract Hero plugin marketplace](https://github.com/contract-hero/plugin-marketplace).
+**Álvaro Lillo's version of [Matt Pocock's skills](https://github.com/mattpocock/skills).** The same skills, tuned for the Contract Hero work-stream and published in the [Contract Hero plugin marketplace](https://github.com/contract-hero/plugin-marketplace).
 
 This is a long-lived fork. It does not wait to merge upstream. It follows upstream instead: Matt's new skills and fixes arrive here by merge, and the changes below sit on top of them.
 
