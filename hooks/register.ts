@@ -1,4 +1,4 @@
-import type { Register, SkillPromptInput } from 'claude-code'
+import type { Register } from 'claude-code'
 
 // The promoted set, as `.claude-plugin/plugin.json` lists it. A skill that
 // comes from this plugin matches on `pluginName`, whatever the manifest names
@@ -60,15 +60,12 @@ This replaces the round format above. Ask each round as AskUserQuestion calls: t
 // namespaces it.
 const bareName = (skill: string) => skill.slice(skill.lastIndexOf(':') + 1)
 
-const isOurs = (plugin: string, e: SkillPromptInput) =>
-  e.pluginName === plugin || (e.pluginName === undefined && SKILLS.has(bareName(e.skill)))
-
 export const register: Register = on => {
   on('skill.prompt', ($, e, next) => {
-    if (!isOurs($.plugin.name, e)) return next(e)
+    const name = bareName(e.skill)
+    const ours = e.pluginName === undefined ? SKILLS.has(name) : e.pluginName === $.plugin.name
+    if (!ours) return next(e)
 
-    const addendum = bareName(e.skill) === 'grilling' ? ASK + GRILL : ASK
-
-    return next({ ...e, text: e.text + addendum })
+    return next({ ...e, text: e.text + ASK + (name === 'grilling' ? GRILL : '') })
   })
 }

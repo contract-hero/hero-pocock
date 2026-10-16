@@ -1,68 +1,29 @@
 import { describe, expect, test } from 'claude-code/testing'
+import { ASK, GRILL } from './register'
 
 // The `name` in `.claude-plugin/plugin.json`: the one line that differs upstream.
 const PLUGIN = 'hero-pocock'
 
 const BODY = 'Interview the user relentlessly.'
-const ASK = '## Asking the user (Claude Code)'
-const GRILL = 'This replaces the round format above.'
+
+// Each case: the test name, the skill as the engine hands it over, and what
+// the hook appends to its text.
+const cases = [
+  ['grilling from the plugin gets both addenda', { skill: `${PLUGIN}:grilling`, source: 'plugin', pluginName: PLUGIN }, ASK + GRILL],
+  ['another plugin skill gets the general addendum only', { skill: 'to-tickets', source: 'plugin', pluginName: PLUGIN }, ASK],
+  ['a loose copy of grilling still matches by name', { skill: 'grilling', source: 'userSettings' }, ASK + GRILL],
+  ["another plugin's skill of the same name is left alone", { skill: 'grilling', source: 'plugin', pluginName: 'someone-else' }, ''],
+  ['an unrelated loose skill is left alone', { skill: 'commit', source: 'userSettings' }, ''],
+] as const
 
 describe('skill.prompt', () => {
-  test('grilling from the plugin gets both addenda', async ($, on) => {
-    on('skill.prompt', ($, e) => ({ text: e.text }))
+  for (const [name, input, suffix] of cases) {
+    test(name, async ($, on) => {
+      on('skill.prompt', ($, e) => ({ text: e.text }))
 
-    const { text } = await $.skill.prompt({
-      skill: `${PLUGIN}:grilling`,
-      text: BODY,
-      source: 'plugin',
-      pluginName: PLUGIN,
+      const { text } = await $.skill.prompt({ ...input, text: BODY })
+
+      expect(text).toBe(BODY + suffix)
     })
-
-    expect(text.startsWith(BODY)).toBe(true)
-    expect(text).toContain(ASK)
-    expect(text).toContain(GRILL)
-  })
-
-  test('another plugin skill gets the general addendum only', async ($, on) => {
-    on('skill.prompt', ($, e) => ({ text: e.text }))
-
-    const { text } = await $.skill.prompt({
-      skill: 'to-tickets',
-      text: BODY,
-      source: 'plugin',
-      pluginName: PLUGIN,
-    })
-
-    expect(text).toContain(ASK)
-    expect(text).not.toContain(GRILL)
-  })
-
-  test('a loose copy of grilling still matches by name', async ($, on) => {
-    on('skill.prompt', ($, e) => ({ text: e.text }))
-
-    const { text } = await $.skill.prompt({ skill: 'grilling', text: BODY, source: 'userSettings' })
-
-    expect(text).toContain(GRILL)
-  })
-
-  test("another plugin's skill of the same name is left alone", async ($, on) => {
-    on('skill.prompt', ($, e) => ({ text: e.text }))
-
-    const { text } = await $.skill.prompt({
-      skill: 'grilling',
-      text: BODY,
-      source: 'plugin',
-      pluginName: 'someone-else',
-    })
-
-    expect(text).toBe(BODY)
-  })
-
-  test('an unrelated loose skill is left alone', async ($, on) => {
-    on('skill.prompt', ($, e) => ({ text: e.text }))
-
-    const { text } = await $.skill.prompt({ skill: 'commit', text: BODY, source: 'userSettings' })
-
-    expect(text).toBe(BODY)
-  })
+  }
 })
