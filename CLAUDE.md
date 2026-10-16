@@ -35,6 +35,14 @@ This repo is `hero-pocock`: Álvaro Lillo's tailored fork of `mattpocock/skills`
 
 ## Agent skills
 
+### Issue tracker
+
+Issues live in GitHub Issues on `contract-hero/hero-pocock`, through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
 ### Triage labels
 
 Canonical names, unchanged. See `docs/agents/triage-labels.md`. Issues are judged against [`SCOPE.md`](./SCOPE.md).
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` at the root, ADRs in `.agents/adr/`. See `docs/agents/domain.md`.
