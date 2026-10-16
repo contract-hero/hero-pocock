@@ -8,7 +8,7 @@ Skills are organized into bucket folders under `skills/`:
 
 Every skill in `engineering/` or `productivity/` (the **promoted** buckets) must have a reference in the top-level `README.md` and an entry in `.claude-plugin/plugin.json`'s `skills` array (the Claude Code plugin ships exactly the promoted set). Skills in `misc/`, `in-progress/`, and `deprecated/` must not appear in either.
 
-Install commands are copied verbatim from [.agents/install-block.md](./.agents/install-block.md). `.claude-plugin/marketplace.json` is the repo's own marketplace. Every agent except Claude Code installs from it to get automatic updates, and Claude Code uses `claude-plugins-official`. Run `claude plugin validate . --strict` after touching either manifest. [ADR 0002](./.agents/adr/0002-ship-as-a-claude-code-plugin.md) records why.
+Install commands are copied verbatim from [.agents/install-block.md](./.agents/install-block.md). `.claude-plugin/marketplace.json` is the repo's own marketplace. Every agent except Claude Code installs from it to get automatic updates, and Claude Code uses the Contract Hero marketplace (`contract-hero/plugin-marketplace`). Run `claude plugin validate . --strict` after touching either manifest. [ADR 0002](./.agents/adr/0002-ship-as-a-claude-code-plugin.md) records why.
 
 Each skill entry in the top-level `README.md` must link the skill name to its `SKILL.md`.
 
@@ -23,6 +23,15 @@ Every `SKILL.md` is either user-invoked (`disable-model-invocation: true` plus `
 To (re)link every skill outside `deprecated/` and `misc/` into the local harness skill directories (`~/.claude/skills`, `~/.agents/skills`), run `scripts/link-skills.sh`. Each entry is a symlink into this repo, so a `git pull` keeps installed skills current; re-run the script after adding, removing, or renaming a skill.
 
 No em-dashes anywhere in this repo's prose (`SKILL.md` files, docs, `README.md`, `CHANGELOG.md`, ADRs, changesets, code comments). Where a sentence reaches for one, rewrite it instead with a comma, colon, period, parentheses, or a conjunction, whichever the sentence actually wants; never do a blind character substitution.
+
+## This fork
+
+This repo is `hero-pocock`: Alvaro Lillo's tailored fork of `mattpocock/skills`. [ADR 0004](./.agents/adr/0004-hero-pocock-is-a-tailored-fork.md) holds the rules. In short:
+
+- `origin` is `contract-hero/hero-pocock`, `upstream` is `mattpocock/skills`. Take upstream by merge (`git merge upstream/main` on a branch), never by rebase.
+- Put tailoring where upstream does not write: hooks under `hooks/`, new ADRs, new skills. Edit an upstream `SKILL.md` only when a hook cannot do the job.
+- `hooks/register.ts` carries Claude-Code-only behaviour so `SKILL.md` files stay harness-neutral, and it keeps a copy of the promoted skill list: when you add, rename, or remove a promoted skill, update it too ([ADR 0003](./.agents/adr/0003-harness-specific-behaviour-ships-as-a-hook.md)). Run `claude plugin validate .` and `claude plugin test .` after a change to `hooks/`.
+- Bump `version` in `.claude-plugin/plugin.json` by hand for each change users should get. Never run `npm run version`: it copies Matt's `package.json` version over it.
 
 ## Agent skills
 
