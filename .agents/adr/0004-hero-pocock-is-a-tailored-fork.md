@@ -8,7 +8,7 @@
 - The plugin is `hero-pocock`, published in the [Contract Hero marketplace](https://github.com/contract-hero/plugin-marketplace), not in `claude-plugins-official`. The repository's own `.claude-plugin/marketplace.json` (named `hero-pocock`) stays as the route for Codex, Copilot and a direct install.
 - Upstream arrives by merge: `git fetch upstream && git merge upstream/main` on a branch, then a PR into `main`. Merge, do not rebase, so `main` never needs a force push.
 - Tailoring goes where upstream does not write: hooks under `hooks/`, new ADRs, and new skills. Edit an upstream `SKILL.md` only when no hook can do the job, because each such edit can conflict on every merge.
-- Matt's GitHub Actions (Release, triage labels, needs-info) are turned off with `gh workflow disable`, not deleted, so upstream edits to those files still merge without a modify/delete conflict.
+- Matt's GitHub Actions (Release, triage labels, needs-info) are turned off with the repository's Actions switch (`gh api -X PUT repos/contract-hero/hero-pocock/actions/permissions -F enabled=false`), not deleted, so upstream edits to those files still merge without a modify/delete conflict. The switch was set before the first push to `main`: otherwise the Release workflow opens a version PR that copies Matt's version into `plugin.json`. If the fork needs its own workflow later, turn Actions back on and run `gh workflow disable` on Matt's three first.
 
 ## Invariants this creates
 
