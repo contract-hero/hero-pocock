@@ -11,8 +11,8 @@ Claude Code installs from the Contract Hero marketplace, `contract-hero/plugin-m
 | Agent         | Route                            | Updates itself?                                                  |
 | ------------- | -------------------------------- | ---------------------------------------------------------------- |
 | Claude Code   | `@contract-hero` marketplace     | Yes, with marketplace auto-update on                             |
-| Codex         | `@hero-pocock` marketplace        | Yes, at startup, by default                                      |
-| Copilot CLI   | `@hero-pocock` marketplace        | Yes, after a one-time `autoUpdate: true`                         |
+| Codex         | `@hero-pocock` marketplace       | Yes, at startup, by default                                      |
+| Copilot CLI   | `@hero-pocock` marketplace       | Yes, after a one-time `autoUpdate: true`                         |
 | VS Code       | Chat: Install Plugin From Source | Yes, daily, by default                                           |
 | Gemini CLI    | `gemini skills install` (copies) | No. A Gemini extension would need a flat `skills/<name>/` layout |
 | Everyone else | skills.sh                        | No. Run `npx skills update`, and re-run `add` for new skills     |

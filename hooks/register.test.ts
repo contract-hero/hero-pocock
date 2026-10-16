@@ -14,6 +14,12 @@ const cases = [
   ['a loose copy of grilling still matches by name', { skill: 'grilling', source: 'userSettings' }, ASK + GRILL],
   ["another plugin's skill of the same name is left alone", { skill: 'grilling', source: 'plugin', pluginName: 'someone-else' }, ''],
   ['an unrelated loose skill is left alone', { skill: 'commit', source: 'userSettings' }, ''],
+  ["Claude Code's built-in code-review is left alone", { skill: 'code-review', source: 'built-in' }, ''],
+  ["an MCP server's grilling is left alone", { skill: 'srv:grilling', source: 'mcp' }, ''],
+  ['a loose copy in the project still matches by name', { skill: 'grilling', source: 'projectSettings' }, ASK + GRILL],
+  ['bare grilling from the plugin gets both addenda', { skill: 'grilling', source: 'plugin', pluginName: PLUGIN }, ASK + GRILL],
+  ["another plugin's namespaced grilling is left alone", { skill: 'mattpocock-skills:grilling', source: 'plugin', pluginName: 'mattpocock-skills' }, ''],
+  ['grill-me gets the general addendum only', { skill: 'grill-me', source: 'userSettings' }, ASK],
 ] as const
 
 describe('skill.prompt', () => {

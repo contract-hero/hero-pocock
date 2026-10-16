@@ -1,9 +1,11 @@
 import type { Register } from 'claude-code'
 
-// The promoted set, as `.claude-plugin/plugin.json` lists it. A skill that
-// comes from this plugin matches on `pluginName`, whatever the manifest names
-// the plugin; this list catches the same skills installed as loose files
-// (skills.sh, `scripts/link-skills.sh`).
+// The promoted set, as `.claude-plugin/plugin.json` lists it. A skill from
+// this plugin matches on `pluginName`, whatever the manifest names the plugin.
+// A skill loaded from a user or project skills folder (skills.sh,
+// `scripts/link-skills.sh`) matches on its bare name against this list. That
+// also catches an unrelated loose skill of the same name, and it skips the
+// `in-progress/` skills that `scripts/link-skills.sh` also links.
 const SKILLS = new Set([
   'ask-matt',
   'diagnosing-bugs',
@@ -63,7 +65,8 @@ const bareName = (skill: string) => skill.slice(skill.lastIndexOf(':') + 1)
 export const register: Register = on => {
   on('skill.prompt', ($, e, next) => {
     const name = bareName(e.skill)
-    const ours = e.pluginName === undefined ? SKILLS.has(name) : e.pluginName === $.plugin.name
+    const loose = e.source === 'userSettings' || e.source === 'projectSettings'
+    const ours = e.pluginName === undefined ? loose && SKILLS.has(name) : e.pluginName === $.plugin.name
     if (!ours) return next(e)
 
     return next({ ...e, text: e.text + ASK + (name === 'grilling' ? GRILL : '') })
