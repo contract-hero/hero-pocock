@@ -45,6 +45,8 @@ Acceptance criteria, in your focus order: <rotated list of the spec's acceptance
 
 Use these categories: `spec-missing` (asked for, missing or partial), `spec-creep` (not asked for), `spec-wrong` (implemented, but wrong). Quote the spec line in `citation`.
 
+Stack version rule: in a stack that `implement-spec-stack` builds, only the top layer (the last layer of the stack plan) bumps the plugin or package version, with one bump for the whole stack. When this PR is a layer of a stack (`<base>` is the branch of another layer, not the default branch), a missing version bump is not a finding. The review of the whole stack (a PR whose body starts with `Spec: #<n>`) checks that the stack carries its one bump.
+
 If there is no spec, return no findings and put `no spec available` in `notes`.
 
 ## Output
