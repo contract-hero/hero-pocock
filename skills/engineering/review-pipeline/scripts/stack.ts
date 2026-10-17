@@ -8,7 +8,8 @@
 //   stack restack      after a parent layer lands, moves the checked-out child
 //                      layer onto the default branch from the parent's
 //                      pre-landing tip, and checks with git range-diff that no
-//                      patch changed.
+//                      patch changed. With --pr it records the pass in that
+//                      layer PR's run dir.
 //   stack merge-layer  squash-merges one reviewed layer at its re-checked head,
 //                      only after the stack-final review of the whole stack
 //                      is complete.
@@ -17,7 +18,7 @@ import { join } from 'node:path'
 import { Failure, parse, positive, refuse, repoOption, runMain, usageFor } from './cli.ts'
 import { configApp, squashMerge } from './finish.ts'
 import { gh, json, listLines, oneLine } from './github.ts'
-import { loadState, stateRoot } from './run-state.ts'
+import { loadState, saveRestack, stateRoot, type Restack } from './run-state.ts'
 
 const usage = usageFor('stack')
 
@@ -190,10 +191,15 @@ const PAIR = /^\s*(?:\d+|-+):\s+\S+\s+([=!<>])\s+(?:\d+|-+):\s+\S+/
 // commits (those after `from`, the parent layer's pre-landing tip). It passes
 // only when `git range-diff` pairs every commit with an unchanged patch.
 // Otherwise the branch goes back to its old tip, and nothing was pushed.
+// With `--pr`, a pass is also recorded in that layer PR's run dir, so that
+// post-review can count a review GitHub carried from the old tip to the new.
 async function restack(values: Record<string, string | boolean | undefined>): Promise<string> {
   const { from, onto } = values
   if (typeof from !== 'string' || from === '') throw usage('restack needs --from <the parent layer pre-landing tip>')
   if (typeof onto !== 'string' || onto === '') throw usage('restack needs --onto <ref>, for example origin/main')
+  const pr = values.pr === undefined ? undefined : positive('pr', values.pr, usage)
+  // The run must exist before anything moves (exit 3 when it does not).
+  if (pr !== undefined) await loadState(pr)
   const branch = git(['symbolic-ref', '--quiet', '--short', 'HEAD'])
   refuse(branch.ok, 'restack needs the layer branch checked out (HEAD is detached)')
   refuse(
@@ -248,7 +254,9 @@ async function restack(values: Record<string, string | boolean | undefined>): Pr
       1,
     )
   }
-  return `${JSON.stringify({ branch: branch.out, from, onto, old_tip: oldTip, new_tip: newTip.out, commits: markers.length, same: true })}\n`
+  const result: Restack = { branch: branch.out, from, onto, old_tip: oldTip, new_tip: newTip.out, commits: markers.length, same: true }
+  if (pr !== undefined) await saveRestack(pr, result)
+  return `${JSON.stringify(result)}\n`
 }
 
 // Land one layer: its review passed (`mode: layer`, phase complete), the
