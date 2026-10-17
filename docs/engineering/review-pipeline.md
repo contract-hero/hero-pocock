@@ -89,7 +89,7 @@ Run it again on the same PR. The run state records the last completed step and t
 
 **What if the Orchestrator ends before its reviewers report?**
 
-On Claude, the Orchestrator starts its reviewers in the foreground and waits for all of them, so this should not happen. If it ends anyway with reviewer outputs missing, the Implementer resumes the same Orchestrator with a message and does not start a new one, because a new one would lose the reviewers that still run.
+On Claude, the Orchestrator starts its reviewers in the foreground and waits for all of them, so this should not happen. If it ends anyway with reviewer outputs missing, the Implementer resumes the same Orchestrator with a message and does not start a new one, because a new one would lose the reviewers that still run. If outputs are still missing after that one resume, the pipeline stops and names the missing reviewers.
 
 **Does it post as a bot?**
 
