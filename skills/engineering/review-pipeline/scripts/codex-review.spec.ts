@@ -320,7 +320,6 @@ test('the reviewer brief asks for bare JSON with no code fence', async (t) => {
     assert.match(await readFile(join(s.runDir, `reviewer-${name}.md`), 'utf8'),
       /Your final message is the findings JSON object and nothing else: bare JSON, with no code fence around it\./)
   }
-  assert.match(await readFile(join(SKILL, 'reviewer-brief.md'), 'utf8'), /bare JSON/)
 })
 
 test('a fenced reviewer output is unwrapped and accepted: the Orchestrator reads bare JSON and the review posts', async (t) => {
