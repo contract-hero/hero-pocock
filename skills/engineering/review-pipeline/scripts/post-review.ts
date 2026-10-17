@@ -268,8 +268,12 @@ async function post(argv: string[]): Promise<string> {
   if (existing !== undefined) {
     // The run state records this review at another commit: GitHub carried it
     // to `commit`. It counts only after a restack with no content change;
-    // otherwise the new head gets a fresh review.
-    const earlier = state?.reviews.find((r) => r.id === existing.id && r.round === round && r.kind === kind && r.commit !== commit)
+    // otherwise the new head gets a fresh review. After two carries (A to B,
+    // then B to C) the review is on record at A and B: the latest record, B,
+    // is where the last restack started.
+    const earlier = state?.reviews
+      .filter((r) => r.id === existing.id && r.round === round && r.kind === kind && r.commit !== commit)
+      .at(-1)
     if (earlier === undefined) {
       await record(state, entry(existing.id), gateRecord)
       return `${JSON.stringify({ posted: false, duplicate: true, id: existing.id, ...gate })}\n`

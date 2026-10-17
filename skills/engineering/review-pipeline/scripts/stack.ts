@@ -277,7 +277,11 @@ async function restack(values: Record<string, string | boolean | undefined>): Pr
     const why = `the old tip ${oldTip} is not the head PR #${state.pr} pinned (${state.head_sha}), so no review carries to the new tip`
     return `${JSON.stringify({ ...result, recorded: false, not_recorded: why })}\n`
   }
-  await saveRestack(state.pr, result)
+  try {
+    await saveRestack(state.pr, result)
+  } catch (error) {
+    throw putBack(`cannot write the restack record of PR #${state.pr}: ${oneLine((error as Error).message)}`)
+  }
   return `${JSON.stringify({ ...result, recorded: true })}\n`
 }
 

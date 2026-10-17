@@ -895,3 +895,36 @@ test('a restack record that is not valid exits 4 and posts nothing', async (t) =
   assert.match(stderr, /corrupt restack record .*restack\.json: it needs old_tip, new_tip and same: true/)
   assert.ok((await s.calls()).every((c) => !c.argv.includes('POST')))
 })
+
+test('with the App, an APPROVE carried over two restacks in a row (OLD to FIXED, then FIXED to NEXT) is recorded at each head, and nothing is posted', async (t) => {
+  const s = await carriedSetup(t)
+  assert.equal((await s.gated('verdict')).code, 0)
+
+  // The next unchanged restack moves the layer from FIXED to NEXT, and GitHub
+  // shows review 600 on NEXT.
+  const NEXT = '9'.repeat(40)
+  await s.patch({ head_sha: NEXT })
+  await writeFile(
+    join(s.dir, 'state', 'pr-13', 'restack.json'),
+    JSON.stringify({ branch: 'ticket/5-child', from: 'a'.repeat(40), onto: 'origin/main', old_tip: FIXED, new_tip: NEXT, commits: 2, same: true }),
+  )
+  await s.gh.respond([
+    { match: 'pulls/13/comments', stdout: POSTED },
+    { match: '--paginate', stdout: listed({ id: 600, body: `## Verdict: round 1\n\n${VERDICT_MARKER}`, commit_id: NEXT, login: BOT, state: 'APPROVED' }) },
+    { match: 'pulls/13/reviews --input', stdout: JSON.stringify({ id: 666 }) },
+  ])
+  const { code, stdout, stderr } = await runCli(
+    ['post-review', '--repo', 'contract-hero/hero-pocock', '--pr', '13', '--commit', NEXT, '--round', '1', '--kind', 'verdict',
+      '--payload', join(s.dir, 'verdict-payload.json'), '--config', s.configPath,
+      '--ledger', join(s.dir, 'findings.json'), '--recheck', join(s.dir, 'recheck-r1.json')],
+    { env: s.env },
+  )
+  assert.equal(stderr, '')
+  assert.equal(code, 0)
+  assert.deepEqual(JSON.parse(stdout), { posted: false, duplicate: true, id: 600, carried_from: FIXED, gate: 'pass', problems: [] })
+  assert.ok((await s.calls()).every((c) => !c.argv.includes('POST')))
+  assert.deepEqual(
+    (await s.reviews()).slice(1).map((r: { id: number; commit: string }) => [r.id, r.commit]),
+    [[600, OLD], [600, FIXED], [600, NEXT]],
+  )
+})

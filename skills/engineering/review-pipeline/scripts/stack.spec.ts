@@ -1,6 +1,6 @@
 // The stack subcommands of implement-spec-stack: order, restack, merge-layer, path.
 import assert from 'node:assert/strict'
-import { chmod, mkdir, readdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { appKey, baseEnv, fakeGh, fakeGitHubApi, run, runCli, seedState, tempDir, type FakeGhResponse } from './test-helpers.ts'
@@ -732,4 +732,21 @@ test('restack --pr of a layer that moved since the run pinned its head passes, b
   assert.equal(out.recorded, false)
   assert.equal(out.not_recorded, `the old tip ${s.childTip} is not the head PR #13 pinned (${pinned}), so no review carries to the new tip`)
   assert.deepEqual(await readdir(join(s.root, 'pr-13')), before)
+})
+
+test('restack --pr that cannot write its record puts the branch back at its old tip and exits 1', async (t) => {
+  const s = await appLanding(t)
+  const runDir = join(s.root, 'pr-13')
+  const state = await readFile(join(runDir, 'state.json'), 'utf8')
+  // A run dir the CLI can read but not write; made writable again at once,
+  // so the temp dirs can be removed.
+  await chmod(runDir, 0o500)
+  const { code, stdout, stderr } = await s.restack().finally(() => chmod(runDir, 0o700))
+  assert.equal(code, 1)
+  assert.equal(stdout, '')
+  assert.match(stderr, new RegExp(`^review\\.ts stack: cannot write the restack record of PR #13: .*\\. child is back at ${s.childTip}\\n$`))
+  assert.equal(await s.git('rev-parse', 'HEAD'), s.childTip)
+  assert.equal(await s.git('status', '--porcelain'), '')
+  assert.deepEqual(await readdir(runDir), ['state.json'])
+  assert.equal(await readFile(join(runDir, 'state.json'), 'utf8'), state)
 })
