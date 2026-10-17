@@ -57,7 +57,7 @@ No. The Orchestrator consolidates all 2N reviewer outputs into one payload and p
 
 **What if the PR has no spec?**
 
-Then no Spec reviewers run, and only the Standards reviewers review the PR. The walkthrough says "no spec available", so you can see why the Spec axis is missing. The spec is the issues the PR closes (`Closes #N`). On `runtime: claude` the Orchestrator also looks for a spec file in the repo. On `runtime: codex` a PR that closes no issue has no spec.
+Then no Spec reviewers run, and only the Standards reviewers review the PR. The walkthrough says "no spec available", so you can see why the Spec axis is missing. The spec is the issues the PR closes (`Closes #N`), or for the PR of a whole stack the issue on its `Spec: #N` line. On `runtime: claude` the Orchestrator also looks for a spec file in the repo. On `runtime: codex` a PR has no spec only when neither source names an issue.
 
 **What is a round, and does a failed round review the PR again?**
 

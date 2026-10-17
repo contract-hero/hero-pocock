@@ -239,7 +239,7 @@ With `runtime: codex`, the Orchestrator, every reviewer and the re-checker are `
 - **Effort rejected.** Exit 1 with "Codex rejected <role>.effort": that model does not support that effort. Stop and tell the user to fix the effort in `docs/agents/review.md` or re-run `/setup-review-pipeline`.
 - **Sub-agent models.** `agent_model` is `null` on this runtime. Where a brief names `<reviewer.agent_model>`, write `<reviewer.model>`.
 
-**You, in Review round:** do not fill [orchestrator-brief.md](./orchestrator-brief.md). After `advance review-dispatched`, run from the repo root, with one `--issue` for each spec issue the PR closes (find them as **Review round** says for the spec line: `closingIssuesReferences`, then `Closes #N` or `Fixes #N` in the body and commit messages):
+**You, in Review round:** do not fill [orchestrator-brief.md](./orchestrator-brief.md). After `advance review-dispatched`, run from the repo root, with one `--issue` for each spec issue (find them as **Review round** says for the spec line: `closingIssuesReferences`, then `Closes #N` or `Fixes #N` in the body and commit messages, and in `stack-final` mode the `Spec: #<n>` line of the body):
 
 ```sh
 review.ts codex-review --pr N --issue <n>
@@ -247,7 +247,7 @@ review.ts codex-review --pr N --issue <n>
 
 A round can take 30 minutes or more, longer than most shell time limits, so run the command in the background and wait until it exits. It does this, in order:
 
-1. Fetches the spec issues into `<run dir>/spec.md`. Without `--issue` there is no spec: it starts no Spec reviewers, and it adds the line "Spec: no spec available" to the walkthrough. So when the PR closes no issue, run it without `--issue`.
+1. Fetches the spec issues into `<run dir>/spec.md`. Without `--issue` there is no spec: it starts no Spec reviewers, and it adds the line "Spec: no spec available" to the walkthrough. So leave out `--issue` only when you find no spec issue at all, in none of the sources above.
 2. Writes the 2N briefs `<run dir>/reviewer-p<k>-<axis>.md` (only the N Standards briefs without a spec), each with the focus order of **Review round** step 3, and runs all of those reviewers in parallel, each as its own read-only `codex exec` on `reviewer.model` and `reviewer.effort`, held to [findings.schema.json](./findings.schema.json). Each one writes `<run dir>/reviewer-p<k>-<axis>.json`, and its log is the `.log` beside it. A failed reviewer is named in the report. When every reviewer fails, it stops and posts nothing.
 3. Fills the codex template of [orchestrator-brief.md](./orchestrator-brief.md) into `<run dir>/orchestrator-brief.md` and runs the Orchestrator read-only on `orchestrator.model` and `orchestrator.effort`. Its final message is one JSON object, held to [review.schema.json](./review.schema.json): the payload, the ledger and a report.
 4. Checks that object against the schema. When it does not match, it exits 1 and posts nothing. Then it moves each inline anchor that is not on the right side of the diff into the walkthrough, writes `review-payload.json`, `findings.json` and `orchestrator-report.md`, and runs `post-review --kind review`. `post-review` refuses a payload that looks like it holds a token or a key.
