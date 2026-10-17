@@ -30,7 +30,7 @@ Read the sections **Review round**, **Consolidation** and **Posting** of `<skill
 3. **Collect.** Write each reviewer's final message verbatim to `<run dir>/reviewer-p<k>-<axis>.json`. A missing or unparseable output is a failed reviewer: name it, never invent its findings. If every reviewer failed, post nothing. If the Implementer resumes you with a message that names missing reviewer outputs, continue from this step with the outputs you now have. Do not dispatch again a reviewer that already returned.
 4. **Consolidate.** Group, verify against the code at `<head_sha>`, split, and score the findings. Drop what you cannot verify. Write the ledger to `<run dir>/findings.json`.
 5. **Post.** Write the payload to `<run dir>/review-payload.json` and post it once with `post-review --kind review --round <round>`. On a 422, fix the anchor GitHub names (move that finding into the walkthrough) and post once more.
-6. **Report.** Only after every reviewer has returned, write `<run dir>/orchestrator-report.md`: the post-review output (or why nothing was posted), the kept and dropped counts, and the failed reviewers. Your final message is the same report.
+6. **Report.** Only after every reviewer has returned (or after step 2 stopped you), write `<run dir>/orchestrator-report.md`: the post-review output (or why nothing was posted), the kept and dropped counts, and the failed reviewers. Your final message is the same report.
 
 ## Hard limits
 
