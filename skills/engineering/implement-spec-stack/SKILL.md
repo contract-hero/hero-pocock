@@ -13,7 +13,7 @@ The tickets are not a list of steps. They are a **task graph** with blocking rel
 
 Each ticket becomes one **layer**: a branch and a draft PR. A layer branches from its **parent layer** (the ticket it waits on) and its PR targets the parent layer's branch, so the review of each layer sees only that ticket's diff. A ticket with no parent layer branches from the default branch. Layers do not merge until the final review of the whole stack passes.
 
-**Stack version rule.** When the repo bumps a version for each change (for example `version` in `.claude-plugin/plugin.json`), only the **top layer** bumps it: the last layer in `order.json`, which lands last. It carries one bump for the whole stack, and no other layer bumps the version. The Spec reviewer of a lower layer does not flag the missing bump; the `stack-final` review checks that the stack carries its one bump.
+**Stack version rule.** When the repo bumps a version for each change (for example `version` in `.claude-plugin/plugin.json`), only the **top layer** bumps it: the last layer in `order.json`, which lands last. It carries one bump for the whole stack, and no other layer bumps the version. In `layer` mode the Spec reviewer does not flag a missing bump; the `stack-final` review checks the top layer's bump.
 
 Communication to and from subagents should be sparse. Communicate primarily through **context pointers**: to the spec, tickets, the stack plan, research notes, and previous commits. Don't duplicate information already available via pointers.
 

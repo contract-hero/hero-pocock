@@ -19,6 +19,7 @@ You are the Orchestrator for PR #<pr> of <owner>/<repo>, review round <round>. Y
 - Helper CLI: `node "<skill dir>/scripts/review.ts"`
 - Config: runtime `<runtime>`, <N> Reviewer pairs, reviewers on model `<reviewer.agent_model>` at `<reviewer.effort>` effort
 - Spec: <issue numbers, a spec path, or "none found">
+- Review mode: <the run's `mode`>. Put it on the **Review mode** line of each Spec brief.
 
 ## Steps
 

@@ -7,7 +7,7 @@ description: "Review, gate and merge one open pull request with an independent O
 
 Take one pull request from draft to merge. Four roles share the work: the **Implementer** (you, the session that runs this skill), the **Orchestrator**, the **Reviewer pairs**, and the re-checker. The Orchestrator, never you, reviews the code and posts the review. You prepare its inputs, launch it, check the result, and later answer the review. Read `GLOSSARY.md` for these terms if the repo has one.
 
-The argument is the PR number (or URL), then an optional `--mode layer|stack-final` (default `single`). Bare `#42` is a PR here. If no PR is given, ask for one. The mode is for `implement-spec-stack`, which runs this skill on each layer of a stack (`layer`) and on the PR of the whole stack (`stack-final`); **Finish** says what each mode skips. A resumed run keeps the mode it was created with. In a stack, only the top layer bumps the plugin version, with one bump for the whole stack, so the Spec reviewers of a layer do not flag a missing bump ([reviewer-brief.md](./reviewer-brief.md), **Spec axis**).
+The argument is the PR number (or URL), then an optional `--mode layer|stack-final` (default `single`). Bare `#42` is a PR here. If no PR is given, ask for one. The mode is for `implement-spec-stack`, which runs this skill on each layer of a stack (`layer`) and on the PR of the whole stack (`stack-final`); **Finish** says what each mode skips. A resumed run keeps the mode it was created with. In a stack, only the top layer bumps the plugin version, with one bump for the whole stack, so in `layer` mode the Spec reviewers do not flag a missing bump ([reviewer-brief.md](./reviewer-brief.md), **Spec axis**).
 
 ## Who does what
 

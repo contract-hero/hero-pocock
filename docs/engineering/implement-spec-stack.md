@@ -49,7 +49,7 @@ The skill puts the branch back where it was, pushes nothing, and asks you. The s
 
 **Which layer bumps the plugin version?**
 
-Only the top layer: the last layer of the stack plan, which lands last. It carries one bump for the whole stack, and no other layer bumps the version. The Spec reviewer of a lower layer does not flag the missing bump, and the final review checks that the stack carries its one bump.
+Only the top layer: the last layer of the stack plan, which lands last. It carries one bump for the whole stack, and no other layer bumps the version. The Spec reviewer of a layer review does not flag a missing bump, and the final review checks the top layer's bump.
 
 **Can a layer merge early?**
 
