@@ -103,6 +103,10 @@ Yes. With `runtime: codex`, every Codex call goes through the helper CLI, which 
 
 No. The coding agent needs a shell, `git`, `node`, `gh` and `codex`, and nothing else. A Codex session can run the whole pipeline.
 
+**How do I see what a helper CLI subcommand takes?**
+
+Run `review.ts help` for the list of every subcommand with its one-line summary. Then add `--help` to one of them, for example `review.ts codex-exec --help`, to see its summary and its usage line. Both print to stdout and exit 0. An unknown subcommand, or a typo, exits non-zero and prints the same list. All of that text comes from one usage table in the CLI, so the help never drifts from what the subcommands accept.
+
 ## It's working if
 
 - The PR gets exactly one review per run, from the App's bot or from your account, with inline suggestions you can apply in the GitHub UI. Each round adds only a re-check comment.
