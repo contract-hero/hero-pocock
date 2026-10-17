@@ -176,7 +176,13 @@ test('a reviewer whose output is missing or not JSON exits 1', async (t) => {
 })
 
 test('an output in one surrounding code fence is unwrapped, checked, and saved as bare JSON', async (t) => {
-  for (const fenced of [`\`\`\`json\n${FINDINGS}\n\`\`\`\n`, `\n\`\`\`\n${FINDINGS}\n\`\`\``]) {
+  for (const fenced of [
+    `\`\`\`json\n${FINDINGS}\n\`\`\`\n`,
+    `\n\`\`\`\n${FINDINGS}\n\`\`\``,
+    // CRLF line ends, tagged and untagged.
+    `\`\`\`json\r\n${FINDINGS}\r\n\`\`\`\r\n`,
+    `\`\`\`\r\n${FINDINGS}\r\n\`\`\``,
+  ]) {
     const { dir, brief, exec } = await setup(t, { spec: { exec: { out: fenced } } })
     const out = join(dir, 'r.json')
     const { code, stderr } = await exec('--role', 'reviewer', '--brief', brief, '--out', out)
