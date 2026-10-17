@@ -16,6 +16,6 @@ PROJECT="${1:-$REPO/skills/engineering/review-pipeline/scripts}"
 PREFIX="$(mktemp -d)"
 trap 'rm -rf "$PREFIX"' EXIT
 
-npm install --prefix "$PREFIX" --no-audit --no-fund --silent typescript@5 @types/node@22
+npm install --prefix "$PREFIX" --no-audit --no-fund --loglevel=error typescript@5 @types/node@22
 
 "$PREFIX/node_modules/.bin/tsc" -p "$PROJECT" --noEmit --typeRoots "$PREFIX/node_modules/@types"
