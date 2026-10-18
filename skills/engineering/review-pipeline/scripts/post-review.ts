@@ -145,6 +145,11 @@ async function zeroFindings(state: State, payload: Payload, pairs: number): Prom
     payload.comments.length === 0,
     `the ledger ${path} is empty, but the payload has ${payload.comments.length} inline comment(s): every posted finding needs a ledger entry`,
   )
+  const rows = findingRows(payload.body)
+  refuse(
+    rows === 0,
+    `the ledger ${path} is empty, but the walkthrough's findings table has ${rows} row(s): every finding in the table needs a ledger entry, so nothing was posted and no pass is recorded`,
+  )
   const files = await readdir(dir)
   const withSpec = files.includes('spec.md') || files.some((f) => /^reviewer-p\d+-spec\.json$/.test(f))
   const failed = await invalidOutputs(dir, expectedReviewers(pairs, withSpec))
@@ -167,10 +172,26 @@ function startsTable(lines: string[], i: number): boolean {
   return /^\s*\|/.test(line) || SEPARATOR.test(lines[i + 1] ?? '')
 }
 
+// The finding rows of the walkthrough's findings tables: each row after the
+// header (and its separator row) that holds a pipe.
+function findingRows(body: string): number {
+  const lines = body.split('\n')
+  let rows = 0
+  for (let i = 0; i < lines.length; i++) {
+    if (!startsTable(lines, i)) continue
+    if (SEPARATOR.test(lines[i + 1] ?? '')) i++
+    while (i + 1 < lines.length && (lines[i + 1] as string).includes('|')) {
+      i++
+      rows++
+    }
+  }
+  return rows
+}
+
 // A zero-finding walkthrough shows no findings table: each findings table
-// (its header and every row after it that holds a pipe) becomes the line
-// "No findings.". A walkthrough with no table and no such line gets it at
-// the end.
+// (only a header and its separator row, because zeroFindings refuses a table
+// with a finding row) becomes the line "No findings.". A walkthrough with no
+// table and no such line gets it at the end.
 function withoutFindingsTable(body: string): string {
   const lines = body.split('\n')
   const out: string[] = []
