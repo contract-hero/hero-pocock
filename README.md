@@ -1,5 +1,8 @@
 # Hero Pocock
 
+> [!IMPORTANT]
+> **This repo is archived.** [hero-forge](https://github.com/contract-hero/hero-forge) replaces it: a hard fork of Matt Pocock's skills for Claude Code, with the full history of this repo. Install `hero-forge@contract-hero` from the [Contract Hero plugin marketplace](https://github.com/contract-hero/plugin-marketplace). [ADR 0007](./.agents/adr/0007-hero-forge-is-a-hard-fork.md) records why. The text below describes the last `hero-pocock` release (0.2.3).
+
 **Álvaro Lillo's version of [Matt Pocock's skills](https://github.com/mattpocock/skills).** The same skills, tuned for the Contract Hero work-stream and published in the [Contract Hero plugin marketplace](https://github.com/contract-hero/plugin-marketplace).
 
 This is a long-lived fork. It does not wait to merge upstream. It follows upstream instead: Matt's new skills and fixes arrive here by merge, and the changes below sit on top of them.
