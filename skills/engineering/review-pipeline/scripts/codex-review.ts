@@ -255,6 +255,13 @@ async function review(argv: string[]): Promise<number> {
   const result = await execRole(config, { role: 'orchestrator', brief: briefPath, out: join(dir, 'orchestrator-output.json') })
   if (!result.ok) throw new Failure(`the Orchestrator failed, so nothing was posted: ${result.message}`, result.code)
   const output = result.output as Output
+  // An empty ledger with an inline finding is an inconsistent output. Check it
+  // here, before the anchor move below can turn that finding into walkthrough
+  // text that would pass as a zero-finding round.
+  refuse(
+    output.ledger.length > 0 || output.payload.comments.length === 0,
+    `the Orchestrator returned an empty ledger but ${output.payload.comments.length} inline comment(s): every posted finding needs a ledger entry, so nothing was posted`,
+  )
 
   // GitHub refuses the whole review for one bad anchor: move those findings
   // into the walkthrough instead.

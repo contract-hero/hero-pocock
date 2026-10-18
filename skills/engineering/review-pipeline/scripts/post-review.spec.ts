@@ -1082,32 +1082,31 @@ test('a zero-finding post reads the inline comments, and a re-run records the sa
   assert.deepEqual(await s.gates(), [{ round: 1, commit: SHA, result: 'pass' }])
 })
 
-test('a zero-finding post never replaces an existing re-check file', async (t) => {
+test('a zero-finding post keeps an existing empty re-check file as it is', async (t) => {
   const s = await zeroSetup(t)
-  const old = '{"items":[{"id":"F1","status":"fixed","reason":"from an earlier run"}]}'
+  const old = '{"items":[]}'
   await writeFile(join(s.runDir, 'recheck-r1.json'), old)
   assert.equal((await s.post()).code, 0)
   assert.equal(await readFile(join(s.runDir, 'recheck-r1.json'), 'utf8'), old)
 })
 
-test('an empty ledger with an inline comment in the payload is refused before any gh call', async (t) => {
-  const s = await zeroSetup(t, { payload: { ...ZERO, comments: [PAYLOAD.comments[0]] } })
+test('a zero-finding walkthrough loses a findings table with no outer pipes', async (t) => {
+  const body = '## Review pipeline: round 1\n\nSpec: no spec available.\n\nID | Where | Axis | Severity | Pairs | Finding\n--- | --- | --- | --- | --- | ---\n\nDropped: 0.'
+  const s = await zeroSetup(t, { payload: { ...ZERO, body } })
   const { code, stderr } = await s.post()
-  assert.equal(code, 1)
-  assert.match(stderr, /the ledger .*findings\.json is empty, but the payload has 1 inline comment\(s\): every posted finding needs a ledger entry/)
-  assert.deepEqual(await s.gh.calls(), [])
-  assert.deepEqual(await s.gates(), [])
-})
-
-test('a review with findings in the ledger records no gate: its round goes on to the re-check', async (t) => {
-  const s = await zeroSetup(t, { payload: PAYLOAD })
-  await writeFile(join(s.runDir, 'findings.json'), JSON.stringify([{ id: 'F1', where: 'src/a.ts:42', decision: '', reason: '' }]))
-  const { code, stdout, stderr } = await s.post()
   assert.equal(stderr, '')
   assert.equal(code, 0)
-  assert.deepEqual(JSON.parse(stdout), { posted: true, id: 555, as: 'user', event: 'COMMENT', round: 1, kind: 'review' })
+  const sent = JSON.parse((await s.gh.calls()).find((c) => c.argv.includes('POST'))!.stdin)
+  assert.equal(sent.body, `## Review pipeline: round 1\n\nSpec: no spec available.\n\nNo findings.\n\nDropped: 0.\n\n${MARKER}`)
+})
+
+test('a zero-finding round with a Spec reviewer output in the run dir, and no spec.md, needs every pair\'s Spec output', async (t) => {
+  const s = await zeroSetup(t, { outputs: { 'reviewer-p1-spec': FINDINGS_OUT(1, 'spec') } })
+  const { code, stderr } = await s.post()
+  assert.equal(code, 1)
+  assert.match(stderr, /no valid output from reviewer-p2-spec \(.*reviewer-p2-spec\.json is missing/)
+  assert.deepEqual(await s.gh.calls(), [])
   assert.deepEqual(await s.gates(), [])
-  await assert.rejects(access(join(s.runDir, 'recheck-r1.json')))
 })
 
 const CLEAN_PR = JSON.stringify({
@@ -1154,6 +1153,38 @@ test('with the App, a zero-finding round gets its APPROVE from the gate on the e
   assert.deepEqual(JSON.parse(approved.stdout), {
     posted: true, id: 666, as: BOT, event: 'APPROVE', round: 1, kind: 'verdict', gate: 'pass', problems: [],
   })
+  for (const phase of ['verdict-posted', 'explained']) assert.equal((await s.runState('advance', '--pr', '13', phase)).code, 0, phase)
+
+  await s.gh.respond([
+    { match: 'mergeStateStatus', stdout: CLEAN_PR },
+    { match: 'pulls/13/reviews', stdout: `${JSON.stringify({ id: 555, state: 'COMMENTED', commit_id: SHA, login: BOT })}\n${JSON.stringify({ id: 666, state: 'APPROVED', commit_id: SHA, login: BOT })}\n` },
+  ])
+  const gate = await runCli(['merge-gate', '--repo', 'contract-hero/hero-pocock', '--pr', '13', '--config', s.configPath], { env: s.env })
+  assert.equal(gate.stderr, '')
+  assert.deepEqual(JSON.parse(gate.stdout).problems, [])
+  assert.equal(JSON.parse(gate.stdout).gate, 'go')
+})
+
+test('with the App, a zero-finding round replaces a re-check file with items from another run, and goes through the APPROVE and merge-gate go', async (t) => {
+  const s = await zeroSetup(t, { app: true })
+  await writeFile(join(s.runDir, 'recheck-r1.json'), '{"items":[{"id":"F1","status":"fixed","reason":"from an earlier run"}]}')
+  const reviewed = await s.post()
+  assert.equal(reviewed.code, 0, reviewed.stderr)
+  assert.deepEqual(JSON.parse(await readFile(join(s.runDir, 'recheck-r1.json'), 'utf8')), { items: [] })
+  for (const phase of ['review-posted', 'adjudicated', 'rechecked', 'body-rewritten', 'ready']) {
+    assert.equal((await s.runState('advance', '--pr', '13', phase)).code, 0, phase)
+  }
+  const verdict = join(s.dir, 'verdict-r1.json')
+  await writeFile(verdict, JSON.stringify({ event: 'APPROVE', body: '## Verdict: round 1', comments: [] }))
+  await s.gh.respond([{ match: 'pulls/13/reviews --input', stdout: JSON.stringify({ id: 666 }) }])
+  const approved = await runCli(
+    ['post-review', '--repo', 'contract-hero/hero-pocock', '--pr', '13', '--commit', SHA, '--round', '1', '--kind', 'verdict',
+      '--payload', verdict, '--config', s.configPath, '--ledger', join(s.runDir, 'findings.json'), '--recheck', join(s.runDir, 'recheck-r1.json')],
+    { env: s.env },
+  )
+  assert.equal(approved.stderr, '')
+  assert.equal(approved.code, 0)
+  assert.equal(JSON.parse(approved.stdout).gate, 'pass')
   for (const phase of ['verdict-posted', 'explained']) assert.equal((await s.runState('advance', '--pr', '13', phase)).code, 0, phase)
 
   await s.gh.respond([
