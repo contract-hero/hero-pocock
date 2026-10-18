@@ -1109,6 +1109,22 @@ test('a zero-finding round with a Spec reviewer output in the run dir, and no sp
   assert.deepEqual(await s.gates(), [])
 })
 
+// An empty ledger with a finding row in the walkthrough table is an
+// inconsistent Orchestrator output: the row would be lost, so it is refused.
+for (const [name, table] of [
+  ['with outer pipes', `${TABLE_HEAD}\n| F1 | src/a.ts:5 | Standards | high | 2/2 | Off by one. |`],
+  ['with no outer pipes', 'ID | Where | Axis | Severity | Pairs | Finding\n--- | --- | --- | --- | --- | ---\nF1 | src/a.ts:5 | Standards | high | 2/2 | Off by one.'],
+] as const) {
+  test(`a zero-finding walkthrough whose findings table (${name}) has a finding row posts nothing and records no pass`, async (t) => {
+    const s = await zeroSetup(t, { payload: { ...ZERO, body: ZERO.body.replace(TABLE_HEAD, table) } })
+    const { code, stderr } = await s.post()
+    assert.equal(code, 1)
+    assert.match(stderr, /the ledger \S+findings\.json is empty, but the walkthrough's findings table has 1 row\(s\): every finding in the table needs a ledger entry/)
+    assert.deepEqual(await s.gh.calls(), [])
+    assert.deepEqual(await s.gates(), [])
+  })
+}
+
 const CLEAN_PR = JSON.stringify({
   state: 'OPEN', isDraft: false, headRefOid: SHA, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
   statusCheckRollup: [{ __typename: 'CheckRun', name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }],
