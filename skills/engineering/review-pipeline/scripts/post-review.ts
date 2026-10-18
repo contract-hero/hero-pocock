@@ -14,11 +14,15 @@
 // and the config and the run state must agree on the reviewer App.
 //
 // `recheck` and `verdict` posts also run the gate (ledger.ts), record its
-// result at the commit, and print it, on a duplicate too. A verdict needs
+// result at the commit, and print it, on a duplicate too. So does a `review`
+// post of a zero-finding round (the run dir's ledger is empty): no re-checker
+// runs, so the review's post records the pass, once every reviewer's output
+// is there and valid. A verdict needs
 // the App. An APPROVE needs a passing gate and a PR that is ready for review
 // (lfg order: the ready flip first, then the approval); a REQUEST_CHANGES
 // goes on a stopped run.
-import { readFile } from 'node:fs/promises'
+import { access, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { Failure, parse, positive, refuse, repoOption, runMain, usageFor } from './cli.ts'
 import { loadConfig } from './config.ts'
 import {
@@ -40,6 +44,7 @@ import {
   KINDS,
   loadRestack,
   loadState,
+  runDir,
   saveState,
   usesApp,
   type Event,
@@ -48,6 +53,7 @@ import {
   type ReviewRecord,
   type State,
 } from './run-state.ts'
+import { expectedReviewers, invalidOutputs } from './reviewer-outputs.ts'
 import { refuseSecretsIn } from './secrets.ts'
 
 const SIDES = ['RIGHT', 'LEFT']
@@ -120,6 +126,46 @@ async function record(state: State | undefined, entry: ReviewRecord | undefined,
   if (!changed) return
   fresh.updated_at = new Date().toISOString()
   await saveState(fresh)
+}
+
+// The walkthrough of a spec-less round says so; any other round also ran the
+// Spec reviewers, so their outputs must be there too.
+const NO_SPEC = /no spec available/i
+
+// Whether this review closes a zero-finding round: the ledger the Orchestrator
+// wrote to the run dir is empty. Such a round passes only when the payload
+// holds no inline finding and every reviewer's output is there and valid;
+// otherwise nothing is posted and no pass is recorded.
+async function zeroFindings(state: State, payload: Payload, pairs: number): Promise<boolean> {
+  const dir = runDir(state.pr)
+  const path = join(dir, 'findings.json')
+  if (!(await access(path).then(() => true, () => false))) return false
+  if ((await loadLedger(path)).length > 0) return false
+  refuse(
+    payload.comments.length === 0,
+    `the ledger ${path} is empty, but the payload has ${payload.comments.length} inline comment(s): every posted finding needs a ledger entry`,
+  )
+  const failed = await invalidOutputs(dir, expectedReviewers(pairs, !NO_SPEC.test(payload.body)))
+  refuse(
+    failed.length === 0,
+    `a round with zero findings passes only when every reviewer's output is valid, so nothing was posted and no pass is recorded: no valid output from ${failed.map((f) => f.name).join(', ')} (${failed.map((f) => f.problem).join('; ')}). Run those reviewers again`,
+  )
+  return true
+}
+
+// A zero-finding walkthrough shows no findings table: a table whose header
+// starts with an ID column becomes the line "No findings.".
+function withoutFindingsTable(body: string): string {
+  const lines = body.split('\n')
+  const out: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] as string
+    if (/^\s*\|\s*ID\s*\|/i.test(line)) {
+      while (i + 1 < lines.length && /^\s*\|/.test(lines[i + 1] as string)) i++
+      out.push('No findings.')
+    } else out.push(line)
+  }
+  return out.join('\n')
 }
 
 // The phases a verdict may post at. An APPROVE goes on a PR that is out of
@@ -232,8 +278,16 @@ async function post(argv: string[]): Promise<string> {
     }
   }
 
+  // A zero-finding round runs no re-checker: the review records the pass. Its
+  // re-check file lists no items, so the verdict and a stack landing gate the
+  // head the same way as after a re-check.
+  const zero = kind === 'review' && state !== undefined && (await zeroFindings(state, payload, loaded.config.pairs))
+  // Taking the table out removes text only, so the secret scan above still holds.
+  if (zero) outgoing.body = withMarker(withoutFindingsTable(payload.body), mark)
+
   let gate: { gate: 'pass' | 'fail'; problems: string[] } | undefined
-  if (gated) {
+  if (zero) gate = { gate: 'pass', problems: [] }
+  else if (gated) {
     const reviewIds = (state as State).reviews.filter((r) => r.kind === 'review').map((r) => r.id)
     const posted = postedFindings(await listInlineComments(repo, pr), reviewIds)
     const problems = gateProblems(ledger, recheck, posted)
@@ -244,11 +298,15 @@ async function post(argv: string[]): Promise<string> {
     )
   }
   const gateRecord: GateRecord | undefined = gate === undefined ? undefined : { round, commit, result: gate.gate }
+  const save = async (entry: ReviewRecord | undefined) => {
+    await record(state, entry, gateRecord)
+    if (zero) await writeFile(join(runDir(pr), `recheck-r${round}.json`), `${JSON.stringify({ items: [] }, null, 2)}\n`)
+  }
 
   // Primary resume check: the run state already records this round's review.
   const recorded = state?.reviews.find((r) => r.round === round && r.kind === kind && r.commit === commit)
   if (recorded !== undefined) {
-    await record(state, undefined, gateRecord)
+    await save(undefined)
     return `${JSON.stringify({ posted: false, duplicate: true, id: recorded.id, ...gate })}\n`
   }
 
@@ -275,11 +333,11 @@ async function post(argv: string[]): Promise<string> {
       .filter((r) => r.id === existing.id && r.round === round && r.kind === kind && r.commit !== commit)
       .at(-1)
     if (earlier === undefined) {
-      await record(state, entry(existing.id), gateRecord)
+      await save(entry(existing.id))
       return `${JSON.stringify({ posted: false, duplicate: true, id: existing.id, ...gate })}\n`
     }
     if (await carries(pr, earlier.commit, commit, existing, reviews, poster, kind, payload.event)) {
-      await record(state, entry(existing.id), gateRecord)
+      await save(entry(existing.id))
       return `${JSON.stringify({ posted: false, duplicate: true, id: existing.id, carried_from: earlier.commit, ...gate })}\n`
     }
   }
@@ -287,7 +345,7 @@ async function post(argv: string[]): Promise<string> {
   const posted = await gh(['api', '-X', 'POST', reviewsPath, '--input', '-'], JSON.stringify(outgoing), poster.token)
   refuse(posted.code === 0, `GitHub rejected the review: ${oneLine(posted.stderr || posted.stdout)}`)
   const { id } = json<{ id: number }>(posted.stdout, 'post review')
-  await record(state, entry(id), gateRecord)
+  await save(entry(id))
   return `${JSON.stringify({ posted: true, id, as: poster.as, event: payload.event, round, kind, ...gate })}\n`
 }
 
