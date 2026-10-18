@@ -986,6 +986,15 @@ test('a zero-finding review posts with no findings table and records a gate pass
   assert.deepEqual(await s.gates(), [{ round: 1, commit: SHA, result: 'pass' }])
 })
 
+test('a zero-finding walkthrough with no table and no "No findings." line gets that line at the end', async (t) => {
+  const s = await zeroSetup(t, { payload: { ...ZERO, body: '## Review pipeline: round 1\n\nSpec: no spec available.\n' } })
+  const { code, stderr } = await s.post()
+  assert.equal(stderr, '')
+  assert.equal(code, 0)
+  const sent = JSON.parse((await s.gh.calls()).find((c) => c.argv.includes('POST'))!.stdin)
+  assert.equal(sent.body, `## Review pipeline: round 1\n\nSpec: no spec available.\n\nNo findings.\n\n${MARKER}`)
+})
+
 for (const [name, outputs, why] of [
   ['a missing reviewer output', { 'reviewer-p2-standards': null }, /reviewer-p2-standards\.json is missing/],
   ['a reviewer output that is prose', { 'reviewer-p2-standards': 'No findings here.' }, /reviewer-p2-standards\.json is not JSON/],
