@@ -21,7 +21,7 @@
 // the App. An APPROVE needs a passing gate and a PR that is ready for review
 // (lfg order: the ready flip first, then the approval); a REQUEST_CHANGES
 // goes on a stopped run.
-import { access, readFile, writeFile } from 'node:fs/promises'
+import { access, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Failure, parse, positive, refuse, repoOption, runMain, usageFor } from './cli.ts'
 import { loadConfig } from './config.ts'
@@ -132,8 +132,10 @@ async function record(state: State | undefined, entry: ReviewRecord | undefined,
 // wrote to the run dir is empty. Such a round passes only when the payload
 // holds no inline finding and every reviewer's output is there and valid;
 // otherwise nothing is posted and no pass is recorded. The round has Spec
-// reviewers when `<run dir>/spec.md` exists: codex-review (or, on runtime
-// claude, the Implementer) writes it for the round, never an agent's payload.
+// reviewers when `<run dir>/spec.md` exists (codex-review, the Implementer or
+// the Orchestrator writes it for the round, never an agent's payload), or
+// when any Spec reviewer wrote an output: then every pair's Spec output must
+// be valid.
 async function zeroFindings(state: State, payload: Payload, pairs: number): Promise<boolean> {
   const dir = runDir(state.pr)
   const path = join(dir, 'findings.json')
@@ -143,7 +145,8 @@ async function zeroFindings(state: State, payload: Payload, pairs: number): Prom
     payload.comments.length === 0,
     `the ledger ${path} is empty, but the payload has ${payload.comments.length} inline comment(s): every posted finding needs a ledger entry`,
   )
-  const withSpec = await access(join(dir, 'spec.md')).then(() => true, () => false)
+  const files = await readdir(dir)
+  const withSpec = files.includes('spec.md') || files.some((f) => /^reviewer-p\d+-spec\.json$/.test(f))
   const failed = await invalidOutputs(dir, expectedReviewers(pairs, withSpec))
   refuse(
     failed.length === 0,
@@ -152,21 +155,35 @@ async function zeroFindings(state: State, payload: Payload, pairs: number): Prom
   return true
 }
 
-// A zero-finding walkthrough shows no findings table: a table whose header
-// starts with an ID column becomes the line "No findings.". A walkthrough with
-// no table and no such line gets it at the end.
+// A findings table starts with a header row whose first cell is ID, with or
+// without outer pipes. A header with no leading pipe counts only when a
+// separator row follows it, as Markdown needs.
+const HEADER = /^\s*\|?\s*ID\s*\|/i
+const SEPARATOR = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/
+
+function startsTable(lines: string[], i: number): boolean {
+  const line = lines[i] as string
+  if (!HEADER.test(line)) return false
+  return /^\s*\|/.test(line) || SEPARATOR.test(lines[i + 1] ?? '')
+}
+
+// A zero-finding walkthrough shows no findings table: each findings table
+// (its header and every row after it that holds a pipe) becomes the line
+// "No findings.". A walkthrough with no table and no such line gets it at
+// the end.
 function withoutFindingsTable(body: string): string {
-  if (!/^\s*\|\s*ID\s*\|/im.test(body)) return /no findings/i.test(body) ? body : `${body.trimEnd()}\n\nNo findings.`
   const lines = body.split('\n')
   const out: string[] = []
+  let found = false
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] as string
-    if (/^\s*\|\s*ID\s*\|/i.test(line)) {
-      while (i + 1 < lines.length && /^\s*\|/.test(lines[i + 1] as string)) i++
+    if (startsTable(lines, i)) {
+      while (i + 1 < lines.length && (lines[i + 1] as string).includes('|')) i++
       out.push('No findings.')
-    } else out.push(line)
+      found = true
+    } else out.push(lines[i] as string)
   }
-  return out.join('\n')
+  if (found) return out.join('\n')
+  return /no findings/i.test(body) ? body : `${body.trimEnd()}\n\nNo findings.`
 }
 
 // The phases a verdict may post at. An APPROVE goes on a PR that is out of
@@ -365,14 +382,21 @@ async function post(argv: string[]): Promise<string> {
   return `${JSON.stringify({ posted: true, id, as: poster.as, event: payload.event, round, kind, ...gate })}\n`
 }
 
-// The re-check file of a zero-finding round: no items. An existing file is
-// never replaced.
+// The re-check file of a zero-finding round: no items. An existing empty one
+// stays as it is, so a resume changes nothing. Any other existing file (items,
+// or not a re-check) comes from another run, because this round has nothing
+// to re-check: it is replaced.
 async function writeEmptyRecheck(path: string): Promise<void> {
-  try {
-    await writeFile(path, `${JSON.stringify({ items: [] }, null, 2)}\n`, { flag: 'wx' })
-  } catch (error) {
-    if ((error as { code?: string }).code !== 'EEXIST') throw error
+  const old = await readFile(path, 'utf8').catch(() => undefined)
+  if (old !== undefined) {
+    try {
+      const value = JSON.parse(old) as { items?: unknown }
+      if (Array.isArray(value.items) && value.items.length === 0) return
+    } catch {
+      // Not JSON: replace it below.
+    }
   }
+  await writeFile(path, `${JSON.stringify({ items: [] }, null, 2)}\n`)
 }
 
 type GitHubReview = { id: number; state: string; body: string | null; commit_id: string | null; login: string | null }

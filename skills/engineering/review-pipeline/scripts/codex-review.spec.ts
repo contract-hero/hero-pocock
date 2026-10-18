@@ -434,14 +434,21 @@ for (const issue of [[], ['--issue', '2']]) {
   })
 }
 
-test('a zero-finding round whose Orchestrator still posts an inline comment is refused and posts nothing', async (t) => {
-  const s = await setup(t, { codex: withOrchestrator(JSON.stringify({ ...ZERO_OUTPUT, payload: { ...ZERO_OUTPUT.payload, comments: [COMMENT] } })) })
-  const { code, stderr } = await s.review()
-  assert.equal(code, 1)
-  assert.match(stderr, /findings\.json is empty, but the payload has 1 inline comment\(s\)/)
-  assert.deepEqual(await s.posts(), [])
-  assert.deepEqual(JSON.parse((await s.runState('read', '--pr', '13')).stdout).gates, [])
-})
+// An empty ledger with an inline comment, in the diff or out of it, is an
+// inconsistent Orchestrator output: checked before the anchor move.
+for (const [where, comment] of [['in the diff', COMMENT], ['out of the diff', { ...COMMENT, line: 12 }]] as const) {
+  test(`an empty ledger with an inline comment ${where} is refused: nothing is posted and no pass is recorded`, async (t) => {
+    const s = await setup(t, { codex: withOrchestrator(JSON.stringify({ ...ZERO_OUTPUT, payload: { ...ZERO_OUTPUT.payload, comments: [comment] } })) })
+    const { code, stdout, stderr } = await s.review()
+    assert.equal(code, 1)
+    assert.equal(stdout, '')
+    assert.equal(stderr, 'review.ts codex-review: the Orchestrator returned an empty ledger but 1 inline comment(s): every posted finding needs a ledger entry, so nothing was posted\n')
+    assert.deepEqual(await s.posts(), [])
+    await assert.rejects(access(join(s.runDir, 'review-payload.json')))
+    await assert.rejects(access(join(s.runDir, 'findings.json')))
+    assert.deepEqual(JSON.parse((await s.runState('read', '--pr', '13')).stdout).gates, [])
+  })
+}
 
 test('a spec-less run removes a spec.md an earlier round left, so post-review expects no Spec reviewers', async (t) => {
   const s = await setup(t, { codex: withOrchestrator(JSON.stringify(ZERO_OUTPUT)) })
