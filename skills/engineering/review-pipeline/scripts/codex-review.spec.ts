@@ -393,3 +393,52 @@ test('bad arguments are a usage error, before any codex call', async (t) => {
   assert.equal((await runCli(['codex-review'], { cwd: s.repo })).code, 2)
   assert.deepEqual(await s.execs(), [])
 })
+
+// A zero-finding round: the Orchestrator keeps no finding.
+const ZERO_OUTPUT = {
+  payload: {
+    event: 'COMMENT',
+    body: '## Review pipeline: round 1\n\n| ID | Where | Axis | Severity | Pairs | Finding |\n| --- | --- | --- | --- | --- | --- |\n\nDropped: 0.',
+    comments: [],
+  },
+  ledger: [],
+  report: 'kept 0, dropped 0',
+}
+
+for (const issue of [[], ['--issue', '2']]) {
+  test(`a zero-finding round ${issue.length === 0 ? 'with no spec' : 'with a spec'} posts no table, starts no re-checker, and records a gate pass at head`, async (t) => {
+    const s = await setup(t, { codex: withOrchestrator(JSON.stringify(ZERO_OUTPUT)) })
+    const { code, stdout, stderr } = await s.review(...issue)
+    assert.equal(stderr, '')
+    assert.equal(code, 0)
+    const out = JSON.parse(stdout)
+    assert.deepEqual([out.posted, out.gate, out.problems], [true, 'pass', []])
+
+    const posts = await s.posts()
+    assert.equal(posts.length, 1)
+    const sent = JSON.parse(posts[0]!.stdin)
+    assert.deepEqual(sent.comments, [])
+    assert.doesNotMatch(sent.body, /\| ID \|/)
+    assert.match(sent.body, /\nNo findings\.\n\nDropped: 0\./)
+
+    const state = JSON.parse((await s.runState('read', '--pr', '13')).stdout)
+    assert.deepEqual(state.gates, [{ round: 1, commit: s.sha, result: 'pass' }])
+    for (const phase of ['review-posted', 'adjudicated', 'rechecked', 'body-rewritten']) {
+      const advanced = await s.runState('advance', '--pr', '13', phase)
+      assert.equal(advanced.code, 0, `${phase}: ${advanced.stderr}`)
+    }
+    const roles = (await s.execs()).map((c) => flag(c, '-o').split('/').pop())
+    assert.ok(roles.every((o) => o === 'orchestrator-output.json' || /^reviewer-p\d-(standards|spec)\.json$/.test(o ?? '')), roles.join(', '))
+    assert.ok(!roles.some((o) => o?.startsWith('recheck')))
+    assert.equal((await s.posts()).length, 1)
+  })
+}
+
+test('a zero-finding round whose Orchestrator still posts an inline comment is refused and posts nothing', async (t) => {
+  const s = await setup(t, { codex: withOrchestrator(JSON.stringify({ ...ZERO_OUTPUT, payload: { ...ZERO_OUTPUT.payload, comments: [COMMENT] } })) })
+  const { code, stderr } = await s.review()
+  assert.equal(code, 1)
+  assert.match(stderr, /findings\.json is empty, but the payload has 1 inline comment\(s\)/)
+  assert.deepEqual(await s.posts(), [])
+  assert.deepEqual(JSON.parse((await s.runState('read', '--pr', '13')).stdout).gates, [])
+})
