@@ -20,5 +20,6 @@ ADR 0004 kept `hero-pocock` close to upstream: no edits to Matt's `SKILL.md` fil
 
 - ADR 0003 keeps its hook, but for a new reason: the hook is the one shared ask preamble for every hero-forge skill, not a way to stay harness-neutral. It matches skills by plugin name, so it needs no copy of the skill list.
 - ADR 0002 still holds on shipping a Claude Code plugin. ADR 0004 is superseded in full.
+- The change takes effect with the hero-forge 1.0.0 release. Until then, the last `hero-pocock` 0.2.x fixes keep the ADR 0004 rules.
 - The limits that ADR 0005 accepted because of ADR 0004 are lifted: `review-pipeline` may own or edit the prompts it uses, and `implement-pr` and `implement-spec-stack` set their own invocation.
 - Matt's new skills and fixes no longer arrive by themselves. Someone must read upstream and decide what to port.
