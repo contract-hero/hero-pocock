@@ -1016,8 +1016,9 @@ for (const [name, outputs, why] of [
   })
 }
 
-test('a zero-finding round whose walkthrough does not say "no spec available" needs the Spec reviewers too', async (t) => {
-  const s = await zeroSetup(t, { payload: { ...ZERO, body: ZERO.body.replace('Spec: no spec available.\n\n', '') } })
+test('a zero-finding round with <run dir>/spec.md needs the Spec reviewers too, whatever the walkthrough says', async (t) => {
+  const s = await zeroSetup(t)
+  await writeFile(join(s.runDir, 'spec.md'), '# #2: Spec\n')
   const { code, stderr } = await s.post()
   assert.equal(code, 1)
   assert.match(stderr, /no valid output from reviewer-p1-spec, reviewer-p2-spec \(/)
@@ -1029,6 +1030,64 @@ test('a zero-finding round whose walkthrough does not say "no spec available" ne
   const again = await s.post()
   assert.equal(again.code, 0, again.stderr)
   assert.equal(JSON.parse(again.stdout).gate, 'pass')
+})
+
+test('a zero-finding round with no <run dir>/spec.md needs only the Standards reviewers, whatever the walkthrough says', async (t) => {
+  const s = await zeroSetup(t, { payload: { ...ZERO, body: ZERO.body.replace('Spec: no spec available.\n\n', '') } })
+  const { code, stdout, stderr } = await s.post()
+  assert.equal(stderr, '')
+  assert.equal(code, 0)
+  assert.equal(JSON.parse(stdout).gate, 'pass')
+})
+
+// Inline comments on GitHub, as `gh api --paginate --jq` lists them.
+const inlineFinding = (review: number) =>
+  `${JSON.stringify({ id: 101, in_reply_to_id: null, pull_request_review_id: review, login: 'alilloig', body: '**F1** (Standards, bug, high, 2/2 pairs) ...' })}\n`
+
+test('a zero-finding re-run whose recorded review holds an inline finding on GitHub records no pass', async (t) => {
+  const s = await zeroSetup(t)
+  await s.patch({ reviews: [{ round: 1, kind: 'review', id: 555, commit: SHA, as: 'user', event: 'COMMENT' }] })
+  await s.gh.respond([{ match: 'pulls/13/comments', stdout: inlineFinding(555) }, ME])
+  const { code, stdout, stderr } = await s.post()
+  assert.equal(code, 1)
+  assert.equal(stdout, '')
+  assert.match(stderr, /the ledger is empty, but GitHub shows inline findings in this run's review, so no pass is recorded: F1 is posted inline but is not in the ledger/)
+  assert.deepEqual(await s.gates(), [])
+  await assert.rejects(access(join(s.runDir, 'recheck-r1.json')))
+})
+
+test('a zero-finding post that finds its own marked review on GitHub with an inline finding records no pass', async (t) => {
+  const s = await zeroSetup(t)
+  await s.gh.respond([
+    { match: 'pulls/13/comments', stdout: inlineFinding(777) },
+    { match: '--paginate', stdout: listed({ id: 777, body: `## Review pipeline: round 1\n\n${MARKER}` }) },
+    ME,
+  ])
+  const { code, stderr } = await s.post()
+  assert.equal(code, 1)
+  assert.match(stderr, /GitHub shows inline findings in this run's review, so no pass is recorded: F1 is posted inline/)
+  assert.ok((await s.gh.calls()).every((c) => !c.argv.includes('POST')))
+  assert.deepEqual(await s.reviews(), [])
+  assert.deepEqual(await s.gates(), [])
+})
+
+test('a zero-finding post reads the inline comments, and a re-run records the same pass and posts nothing', async (t) => {
+  const s = await zeroSetup(t)
+  assert.equal((await s.post()).code, 0)
+  assert.ok((await s.gh.calls()).some((c) => c.argv.join(' ') === COMMENTS.join(' ')))
+  const again = await s.post()
+  assert.equal(again.code, 0, again.stderr)
+  assert.deepEqual(JSON.parse(again.stdout), { posted: false, duplicate: true, id: 555, gate: 'pass', problems: [] })
+  assert.equal((await s.gh.calls()).filter((c) => c.argv.includes('POST')).length, 1)
+  assert.deepEqual(await s.gates(), [{ round: 1, commit: SHA, result: 'pass' }])
+})
+
+test('a zero-finding post never replaces an existing re-check file', async (t) => {
+  const s = await zeroSetup(t)
+  const old = '{"items":[{"id":"F1","status":"fixed","reason":"from an earlier run"}]}'
+  await writeFile(join(s.runDir, 'recheck-r1.json'), old)
+  assert.equal((await s.post()).code, 0)
+  assert.equal(await readFile(join(s.runDir, 'recheck-r1.json'), 'utf8'), old)
 })
 
 test('an empty ledger with an inline comment in the payload is refused before any gh call', async (t) => {

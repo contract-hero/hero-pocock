@@ -442,3 +442,13 @@ test('a zero-finding round whose Orchestrator still posts an inline comment is r
   assert.deepEqual(await s.posts(), [])
   assert.deepEqual(JSON.parse((await s.runState('read', '--pr', '13')).stdout).gates, [])
 })
+
+test('a spec-less run removes a spec.md an earlier round left, so post-review expects no Spec reviewers', async (t) => {
+  const s = await setup(t, { codex: withOrchestrator(JSON.stringify(ZERO_OUTPUT)) })
+  await writeFile(join(s.runDir, 'spec.md'), '# #2: Spec\n')
+  const { code, stdout, stderr } = await s.review()
+  assert.equal(stderr, '')
+  assert.equal(code, 0)
+  assert.equal(JSON.parse(stdout).gate, 'pass')
+  await assert.rejects(access(join(s.runDir, 'spec.md')))
+})

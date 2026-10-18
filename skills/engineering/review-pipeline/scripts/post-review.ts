@@ -128,14 +128,12 @@ async function record(state: State | undefined, entry: ReviewRecord | undefined,
   await saveState(fresh)
 }
 
-// The walkthrough of a spec-less round says so; any other round also ran the
-// Spec reviewers, so their outputs must be there too.
-const NO_SPEC = /no spec available/i
-
 // Whether this review closes a zero-finding round: the ledger the Orchestrator
 // wrote to the run dir is empty. Such a round passes only when the payload
 // holds no inline finding and every reviewer's output is there and valid;
-// otherwise nothing is posted and no pass is recorded.
+// otherwise nothing is posted and no pass is recorded. The round has Spec
+// reviewers when `<run dir>/spec.md` exists: codex-review (or, on runtime
+// claude, the Implementer) writes it for the round, never an agent's payload.
 async function zeroFindings(state: State, payload: Payload, pairs: number): Promise<boolean> {
   const dir = runDir(state.pr)
   const path = join(dir, 'findings.json')
@@ -145,7 +143,8 @@ async function zeroFindings(state: State, payload: Payload, pairs: number): Prom
     payload.comments.length === 0,
     `the ledger ${path} is empty, but the payload has ${payload.comments.length} inline comment(s): every posted finding needs a ledger entry`,
   )
-  const failed = await invalidOutputs(dir, expectedReviewers(pairs, !NO_SPEC.test(payload.body)))
+  const withSpec = await access(join(dir, 'spec.md')).then(() => true, () => false)
+  const failed = await invalidOutputs(dir, expectedReviewers(pairs, withSpec))
   refuse(
     failed.length === 0,
     `a round with zero findings passes only when every reviewer's output is valid, so nothing was posted and no pass is recorded: no valid output from ${failed.map((f) => f.name).join(', ')} (${failed.map((f) => f.problem).join('; ')}). Run those reviewers again`,
@@ -288,10 +287,22 @@ async function post(argv: string[]): Promise<string> {
   if (zero) outgoing.body = withMarker(withoutFindingsTable(payload.body), mark)
 
   let gate: { gate: 'pass' | 'fail'; problems: string[] } | undefined
-  if (zero) gate = { gate: 'pass', problems: [] }
-  else if (gated) {
-    const reviewIds = (state as State).reviews.filter((r) => r.kind === 'review').map((r) => r.id)
-    const posted = postedFindings(await listInlineComments(repo, pr), reviewIds)
+  const reviewIds = (state?.reviews ?? []).filter((r) => r.kind === 'review').map((r) => r.id)
+  // The PR's inline comments, read for the gate. A zero-finding round passes
+  // only while no review of the run holds an inline finding on GitHub.
+  const inline = zero || gated ? await listInlineComments(repo, pr) : []
+  const zeroGate = (ids: number[]) => {
+    const problems = gateProblems([], [], postedFindings(inline, ids))
+    refuse(
+      problems.length === 0,
+      `the ledger is empty, but GitHub shows inline findings in this run's review, so no pass is recorded: ${problems.join('; ')}`,
+    )
+  }
+  if (zero) {
+    zeroGate(reviewIds)
+    gate = { gate: 'pass', problems: [] }
+  } else if (gated) {
+    const posted = postedFindings(inline, reviewIds)
     const problems = gateProblems(ledger, recheck, posted)
     gate = { gate: problems.length === 0 ? 'pass' : 'fail', problems }
     refuse(
@@ -302,7 +313,7 @@ async function post(argv: string[]): Promise<string> {
   const gateRecord: GateRecord | undefined = gate === undefined ? undefined : { round, commit, result: gate.gate }
   const save = async (entry: ReviewRecord | undefined) => {
     await record(state, entry, gateRecord)
-    if (zero) await writeFile(join(runDir(pr), `recheck-r${round}.json`), `${JSON.stringify({ items: [] }, null, 2)}\n`)
+    if (zero) await writeEmptyRecheck(join(runDir(pr), `recheck-r${round}.json`))
   }
 
   // Primary resume check: the run state already records this round's review.
@@ -334,6 +345,9 @@ async function post(argv: string[]): Promise<string> {
     const earlier = state?.reviews
       .filter((r) => r.id === existing.id && r.round === round && r.kind === kind && r.commit !== commit)
       .at(-1)
+    // Our review is already on GitHub: a zero-finding pass also needs it to
+    // hold no inline finding.
+    if (zero) zeroGate([...reviewIds, existing.id])
     if (earlier === undefined) {
       await save(entry(existing.id))
       return `${JSON.stringify({ posted: false, duplicate: true, id: existing.id, ...gate })}\n`
@@ -349,6 +363,16 @@ async function post(argv: string[]): Promise<string> {
   const { id } = json<{ id: number }>(posted.stdout, 'post review')
   await save(entry(id))
   return `${JSON.stringify({ posted: true, id, as: poster.as, event: payload.event, round, kind, ...gate })}\n`
+}
+
+// The re-check file of a zero-finding round: no items. An existing file is
+// never replaced.
+async function writeEmptyRecheck(path: string): Promise<void> {
+  try {
+    await writeFile(path, `${JSON.stringify({ items: [] }, null, 2)}\n`, { flag: 'wx' })
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'EEXIST') throw error
+  }
 }
 
 type GitHubReview = { id: number; state: string; body: string | null; commit_id: string | null; login: string | null }
