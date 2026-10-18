@@ -15,7 +15,7 @@
 // review-dispatched and before this round's review is posted, so a re-run
 // never replaces the ledger of a review that is already on the PR.
 import { spawnSync } from 'node:child_process'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Failure, parse, positive, refuse, runMain, usageFor } from './cli.ts'
@@ -204,13 +204,17 @@ async function review(argv: string[]): Promise<number> {
   const files = git(['diff', '--name-only', range]).split('\n').filter((f) => f !== '')
   if (files.length === 0) throw new Failure(`the diff ${range} is empty: there is nothing to review`, 1)
 
-  // `<run dir>/spec.md` exists only while the round has a spec: post-review
-  // reads it to know whether the round had Spec reviewers.
+  // `<run dir>/spec.md` and the Spec reviewer files exist only while the
+  // round has a spec: post-review reads them to know whether the round had
+  // Spec reviewers. A spec-less run removes the ones an earlier attempt left.
   let spec: string | undefined
   if (issues.length > 0) {
     spec = join(dir, 'spec.md')
     await fetchSpec(state.repo, issues, spec)
-  } else await rm(join(dir, 'spec.md'), { force: true })
+  } else {
+    const stale = (await readdir(dir)).filter((f) => f === 'spec.md' || /^reviewer-p\d+-spec\.(json|md|log)$/.test(f))
+    await Promise.all(stale.map((f) => rm(join(dir, f), { force: true })))
+  }
 
   // No spec, no Spec reviewers: they would have nothing to judge.
   const c: Coordinates = { state, base, files, dir, spec, pairs: config.pairs }

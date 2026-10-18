@@ -450,12 +450,18 @@ for (const [where, comment] of [['in the diff', COMMENT], ['out of the diff', { 
   })
 }
 
-test('a spec-less run removes a spec.md an earlier round left, so post-review expects no Spec reviewers', async (t) => {
+// A spec-backed attempt that stopped (one Spec output valid, one missing)
+// leaves Spec files behind. A spec-less retry removes them, so post-review
+// expects only the Standards reviewers the retry starts.
+test('a spec-less run removes the spec.md and Spec reviewer files an earlier attempt left, so post-review expects no Spec reviewers', async (t) => {
   const s = await setup(t, { codex: withOrchestrator(JSON.stringify(ZERO_OUTPUT)) })
+  const stale = ['spec.md', 'reviewer-p1-spec.json', 'reviewer-p1-spec.md', 'reviewer-p1-spec.log', 'reviewer-p2-spec.md']
   await writeFile(join(s.runDir, 'spec.md'), '# #2: Spec\n')
+  await writeFile(join(s.runDir, 'reviewer-p1-spec.json'), '{"axis":"spec","pair":1,"findings":[],"notes":""}')
+  for (const f of ['reviewer-p1-spec.md', 'reviewer-p1-spec.log', 'reviewer-p2-spec.md']) await writeFile(join(s.runDir, f), 'old\n')
   const { code, stdout, stderr } = await s.review()
   assert.equal(stderr, '')
   assert.equal(code, 0)
   assert.equal(JSON.parse(stdout).gate, 'pass')
-  await assert.rejects(access(join(s.runDir, 'spec.md')))
+  for (const f of stale) await assert.rejects(access(join(s.runDir, f)), f)
 })
