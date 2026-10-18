@@ -154,8 +154,10 @@ async function zeroFindings(state: State, payload: Payload, pairs: number): Prom
 }
 
 // A zero-finding walkthrough shows no findings table: a table whose header
-// starts with an ID column becomes the line "No findings.".
+// starts with an ID column becomes the line "No findings.". A walkthrough with
+// no table and no such line gets it at the end.
 function withoutFindingsTable(body: string): string {
+  if (!/^\s*\|\s*ID\s*\|/im.test(body)) return /no findings/i.test(body) ? body : `${body.trimEnd()}\n\nNo findings.`
   const lines = body.split('\n')
   const out: string[] = []
   for (let i = 0; i < lines.length; i++) {
