@@ -6,7 +6,7 @@ Nothing merges until the whole stack has passed its final review. Upstream `impl
 
 ## When to reach for it
 
-You invoke this by typing `/implement-spec-stack <spec>`, and the agent won't reach for it on its own.
+Type `/implement-spec-stack <spec>`, or an agent or router asks for `implement-spec-stack` by name through the Skill tool. It does not fire on a passing mention of a spec or its tickets.
 
 | Your situation | Reach for |
 | --- | --- |
@@ -21,7 +21,7 @@ You invoke this by typing `/implement-spec-stack <spec>`, and the agent won't re
 | `docs/agents/review.md`, written by [setup-review-pipeline](https://github.com/contract-hero/hero-pocock/blob/main/docs/engineering/setup-review-pipeline.md) | every layer and the final review go through the pipeline; without the config, the skill stops before it builds anything |
 | GitHub Issues, with the tickets as sub-issues of the spec and the edges as native `blocked_by` dependencies | the stack order comes from that graph; on any other tracker the skill stops |
 | Node 22.18 or newer, and `gh` logged in | the stack steps run through the pipeline's helper CLI and `gh` |
-| A [harness](https://www.aihero.dev/ai-coding-dictionary/harness) that runs subagents in the background, each in its own git worktree | independent tickets build at the same time |
+| A [harness](https://www.aihero.dev/ai-coding-dictionary/harness) that runs subagents in parallel, each in its own git worktree | independent tickets build at the same time. The skill waits for each subagent whose result its next step needs, so the run never ends while an implementer still works |
 
 ## The stack
 
@@ -31,7 +31,7 @@ The `blocked_by` graph decides the shape. A ticket with one open blocker branche
 | --- | --- |
 | Layer review | each layer's PR targets its parent layer's branch, so its review sees only that ticket's diff. The pipeline stops after the ready flip and, with the reviewer App, its approval: no explainer, no merge |
 | Final review | a temporary draft PR from a `stack/spec-<N>` branch to `main` holds the whole stack: the stack is a tree, so the branch merges every layer that has no children. The pipeline reviews it against the spec and builds the explainer, once for the run. A fix lands on the layer it is about. The PR stays a draft, so the App never approves it |
-| Landing | bottom-up: squash-merge a layer, then rebase each child `--onto main` from the parent's **pre-landing tip**, so no commit is duplicated. A `git range-diff` must show no content change before the child is pushed, and the gate runs again at the new head (the reviewer App, when you use one, approves it) |
+| Landing | bottom-up: squash-merge a layer, then rebase each child `--onto main` from the parent's **pre-landing tip**, so no commit is duplicated. A `git range-diff` must show no content change before the child is pushed, and the gate runs again at the new head (the reviewer App, when you use one, approves it; if GitHub moved its earlier approval to the new head, that approval is recorded and no second one posts) |
 
 ## Common questions
 
@@ -47,12 +47,17 @@ An inline review comment must anchor in its PR's own diff. The top layer's PR di
 
 The skill puts the branch back where it was, pushes nothing, and asks you. The same happens on a rebase conflict. A landing that needs a human never guesses.
 
+**Which layer bumps the plugin version?**
+
+Only the top layer: the last layer of the stack plan, which lands last. It carries one bump for the whole stack, and no other layer bumps the version. The Spec reviewer of a layer review does not flag a missing bump, and the final review checks the top layer's bump.
+
 **Can a layer merge early?**
 
 No. A layer run ends at ready, and the skill lands nothing until the final review passes: `stack merge-layer` refuses to merge while the run of the stack PR is not complete. The pipeline's own `merge` refuses a layer.
 
 ## It's working if
 
+- An agent that calls the Skill tool with `implement-spec-stack` and a spec starts the same run as `/implement-spec-stack`.
 - The run shows the stack as a tree before it builds, with any re-stacked edge and any left-out ticket named.
 - Each layer PR targets its parent layer's branch, and its review comments touch only that ticket's files.
 - No layer merges before the stack PR's final review passes, and only the stack PR gets an explainer comment.

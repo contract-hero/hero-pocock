@@ -18,7 +18,7 @@ const ME: FakeGhResponse = { match: 'api user', stdout: 'alilloig\n' }
 const POSTED: FakeGhResponse = { match: 'pulls/13/reviews --input', stdout: JSON.stringify({ id: 555 }) }
 const FORBIDDEN = ['danger-full-access', 'workspace-write', 'network_access', '--full-auto', '--dangerously-bypass-approvals-and-sandbox']
 
-type Setup = { codex?: FakeCodexSpec; gh?: FakeGhResponse[] }
+type Setup = { codex?: FakeCodexSpec; gh?: FakeGhResponse[]; mode?: string }
 
 const git = async (cwd: string, ...args: string[]) => {
   const r = await run('git', args, { cwd })
@@ -56,7 +56,8 @@ async function setup(t: Parameters<typeof tempDir>[0], options: Setup = {}) {
   const configPath = join(dir, 'review.md')
   await writeFile(configPath, CONFIG)
   const created = await runCli(['run-state', 'create', '--pr', '13', '--repo', 'contract-hero/hero-pocock', '--base', 'main',
-    '--head', 'feature/x', '--head-sha', sha, '--runtime', 'codex', '--reviewer-login', 'none'], { cwd: repo, env })
+    '--head', 'feature/x', '--head-sha', sha, '--runtime', 'codex', '--reviewer-login', 'none',
+    ...(options.mode === undefined ? [] : ['--mode', options.mode])], { cwd: repo, env })
   assert.equal(created.code, 0, created.stderr)
   const dispatched = await runCli(['run-state', 'advance', '--pr', '13', 'review-dispatched'], { cwd: repo, env })
   assert.equal(dispatched.code, 0, dispatched.stderr)
@@ -231,48 +232,157 @@ test('anchors still match the diff when the user sets diff.noprefix', async (t) 
   assert.doesNotMatch(sent.body, /Findings outside the diff/)
 })
 
-test('without --issue no spec is fetched, and the Spec reviewers look for the spec themselves', async (t) => {
+test('a spec-less run (no --issue) starts only Standards reviewers, and its walkthrough says "no spec available"', async (t) => {
   const s = await setup(t)
   const { code, stderr } = await s.review()
   assert.equal(stderr, '')
   assert.equal(code, 0)
   assert.ok(!(await s.gh.calls()).some((c) => c.argv[0] === 'issue'))
-  const spec = (await s.execs()).find((c) => flag(c, '-o').endsWith('reviewer-p1-spec.json'))
-  assert.match(spec!.stdin, /no spec issue was given/)
   await assert.rejects(access(join(s.runDir, 'spec.md')))
+  const execs = await s.execs()
+  const reviewers = execs.filter((c) => flag(c, '-o').includes('reviewer-p')).map((c) => flag(c, '-o')).sort()
+  assert.deepEqual(reviewers, ['p1-standards', 'p2-standards'].map((n) => join(s.runDir, `reviewer-${n}.json`)))
+  await assert.rejects(access(join(s.runDir, 'reviewer-p1-spec.md')))
+  const orchestrator = execs.find((c) => flag(c, '-o').includes('orchestrator-output'))!.stdin
+  assert.match(orchestrator, /- Spec: none\. No spec issue was given, so no Spec reviewers ran/)
+  assert.doesNotMatch(orchestrator, /reviewer-p\d-spec/)
+  const sent = JSON.parse((await s.posts())[0]!.stdin)
+  assert.match(sent.body, /^## Review pipeline: round 1\n\nSpec: no spec available \(no spec issue was given, so no Spec reviewers ran\)\.\n/)
 })
 
-test('a relaunch after a failed Orchestrator reuses each reviewer output for the same brief and runs only the failed ones', async (t) => {
+test('no Standards brief contains spec-handling text, with or without a spec', async (t) => {
+  for (const issue of [[], ['--issue', '2']]) {
+    const s = await setup(t)
+    const { code, stderr } = await s.review(...issue)
+    assert.equal(stderr, '')
+    assert.equal(code, 0)
+    for (const k of [1, 2]) {
+      // The skill and run dir paths are the checkout's, and may hold "spec" by chance.
+      const brief = (await readFile(join(s.runDir, `reviewer-p${k}-standards.md`), 'utf8'))
+        .replaceAll(SKILL, '<skill>').replaceAll(s.runDir, '<run dir>')
+      assert.match(brief, /Standards reviewer of pair/)
+      assert.doesNotMatch(brief, /spec|acceptance criteria|review mode/i, `pair ${k}, ${issue.length === 0 ? 'no spec' : 'spec'}`)
+    }
+  }
+})
+
+test('with a spec, the Spec briefs carry the spec and its acceptance criteria, and the walkthrough has no "no spec" line', async (t) => {
+  const s = await setup(t)
+  const { code, stderr } = await s.review('--issue', '2')
+  assert.equal(stderr, '')
+  assert.equal(code, 0)
+  const brief = await readFile(join(s.runDir, 'reviewer-p2-spec.md'), 'utf8')
+  assert.match(brief, /^- Spec: the issues in `.*spec\.md`\. Read that file: it is the spec contents\.$/m)
+  assert.match(brief, /^- Acceptance criteria, in your focus order: .*starting at criterion number \(\(2 - 1\) mod C\) \+ 1/m)
+  assert.doesNotMatch(JSON.parse((await s.posts())[0]!.stdin).body, /no spec available/)
+})
+
+test('a layer-mode run tells its Spec reviewers the review mode, and a single-mode run does not', async (t) => {
+  const specBrief = async (mode?: string) => {
+    const s = await setup(t, { mode })
+    const { code, stderr } = await s.review('--issue', '2')
+    assert.equal(stderr, '')
+    assert.equal(code, 0)
+    return readFile(join(s.runDir, 'reviewer-p1-spec.md'), 'utf8')
+  }
+  assert.match(await specBrief('layer'), /^- Review mode: layer \(one layer of a stack\)$/m)
+  assert.doesNotMatch(await specBrief(), /Review mode/)
+})
+
+test('a relaunch after a stopped round reuses each valid reviewer output for the same brief and runs only the failed ones', async (t) => {
   const s = await setup(t, { codex: { routes: [
     { match: 'reviewer-p2-spec', out: null, exit: 1 },
+    { match: 'reviewer-p1-spec', out: `\`\`\`json\n${FINDINGS}\n\`\`\`\n` },
     { match: 'reviewer-p', out: FINDINGS },
-    { match: 'orchestrator-output', out: null, exit: 1 },
+    { match: 'orchestrator-output', out: JSON.stringify(OUTPUT) },
   ] } })
-  const first = await s.review()
+  const first = await s.review('--issue', '2')
   assert.equal(first.code, 1)
   assert.match(first.stderr, /reviewer-p2-spec failed/)
-  assert.match(first.stderr, /the Orchestrator failed, so nothing was posted/)
-  const brief = (await s.execs()).find((c) => flag(c, '-o').includes('orchestrator-output'))!.stdin
-  assert.match(brief, /reviewer-p2-spec\.json`: failed/)
-  assert.match(brief, /reviewer-p1-spec\.json`: ok/)
+  assert.ok(!(await s.execs()).some((c) => flag(c, '-o').includes('orchestrator-output')))
 
   await writeFile(join(s.dir, 'codex-spec.json'), JSON.stringify({ routes: [
     { match: 'reviewer-p', out: FINDINGS },
     { match: 'orchestrator-output', out: JSON.stringify(OUTPUT) },
   ] }))
   const before = (await s.execs()).length
-  const again = await s.review()
+  const again = await s.review('--issue', '2')
   assert.equal(again.code, 0, again.stderr)
   const rerun = (await s.execs()).slice(before).map((c) => flag(c, '-o').split('/').pop())
   assert.deepEqual(rerun, ['reviewer-p2-spec.json', 'orchestrator-output.json'])
   assert.equal(JSON.parse(again.stdout).posted, true)
 })
 
-test('when every reviewer fails, the Orchestrator never runs and nothing is posted', async (t) => {
+test('the reviewer brief asks for bare JSON with no code fence', async (t) => {
+  const s = await setup(t)
+  assert.equal((await s.review('--issue', '2')).code, 0)
+  for (const name of ['p1-standards', 'p2-spec']) {
+    assert.match(await readFile(join(s.runDir, `reviewer-${name}.md`), 'utf8'),
+      /Your final message is the findings JSON object and nothing else: bare JSON, with no code fence around it\./)
+  }
+})
+
+test('a fenced reviewer output is unwrapped and accepted: the Orchestrator reads bare JSON and the review posts', async (t) => {
+  const s = await setup(t, { codex: { routes: [
+    { match: 'reviewer-p1-standards', out: `\`\`\`json\n${FINDINGS}\n\`\`\`\n` },
+    { match: 'reviewer-p', out: FINDINGS },
+    { match: 'orchestrator-output', out: JSON.stringify(OUTPUT) },
+  ] } })
+  const { code, stdout, stderr } = await s.review('--issue', '2')
+  assert.equal(stderr, '')
+  assert.equal(code, 0)
+  assert.equal(JSON.parse(stdout).posted, true)
+  assert.deepEqual(JSON.parse(await readFile(join(s.runDir, 'reviewer-p1-standards.json'), 'utf8')), JSON.parse(FINDINGS))
+  assert.equal((await s.posts()).length, 1)
+})
+
+// One reviewer's output is missing or invalid: the round stops before the
+// Orchestrator, names that reviewer, and posts nothing.
+for (const [name, broken, why] of [
+  ['missing', { out: null }, /codex exec wrote no output/],
+  ['from a failed codex exec', { out: null, exit: 1 }, /codex exec failed \(exit 1\)/],
+  ['prose', { out: 'No findings here.' }, /is not JSON/],
+  ['prose around a fence', { out: `Here:\n\`\`\`json\n${FINDINGS}\n\`\`\`\n` }, /is not JSON/],
+  ['JSON that breaks the findings schema', { out: '{"axis":"standards","pair":1,"findings":[]}' }, /\$: missing "notes"/],
+] as const) {
+  test(`a reviewer output that is ${name} stops the round, names the reviewer, and posts nothing`, async (t) => {
+    const s = await setup(t, { codex: { routes: [
+      { match: 'reviewer-p2-standards', ...broken },
+      { match: 'reviewer-p', out: FINDINGS },
+      { match: 'orchestrator-output', out: JSON.stringify(OUTPUT) },
+    ] } })
+    const { code, stdout, stderr } = await s.review('--issue', '2')
+    assert.equal(code, 1)
+    assert.equal(stdout, '')
+    assert.match(stderr, why)
+    assert.match(stderr, /the round stops and nothing was posted: no valid output from reviewer-p2-standards\./)
+    for (const ok of ['p1-standards', 'p1-spec', 'p2-spec']) assert.doesNotMatch(stderr, new RegExp(`reviewer-${ok}`))
+    assert.ok(!(await s.execs()).some((c) => flag(c, '-o').includes('orchestrator-output')))
+    assert.deepEqual(await s.posts(), [])
+    await assert.rejects(access(join(s.runDir, 'review-payload.json')))
+    await assert.rejects(access(join(s.runDir, 'findings.json')))
+    assert.match(await readFile(join(s.runDir, 'orchestrator-report.md'), 'utf8'), /reviewer-p2-standards/)
+  })
+}
+
+test('a spec-less run expects only the Standards reviewers, and stops on a missing one', async (t) => {
+  const s = await setup(t, { codex: { routes: [
+    { match: 'reviewer-p1-standards', out: null },
+    { match: 'reviewer-p', out: FINDINGS },
+    { match: 'orchestrator-output', out: JSON.stringify(OUTPUT) },
+  ] } })
+  const { code, stderr } = await s.review()
+  assert.equal(code, 1)
+  assert.match(stderr, /no valid output from reviewer-p1-standards\./)
+  assert.doesNotMatch(stderr, /-spec/)
+  assert.deepEqual(await s.posts(), [])
+})
+
+test('when every reviewer fails, the Orchestrator never runs, every reviewer is named, and nothing is posted', async (t) => {
   const s = await setup(t, { codex: { exec: { out: null, exit: 1 } } })
   const { code, stderr } = await s.review()
   assert.equal(code, 1)
-  assert.match(stderr, /every reviewer failed, so nothing was posted/)
+  assert.match(stderr, /no valid output from reviewer-p1-standards, reviewer-p2-standards\./)
   assert.ok(!(await s.execs()).some((c) => flag(c, '-o').includes('orchestrator-output')))
   assert.deepEqual(await s.posts(), [])
 })
@@ -282,4 +392,70 @@ test('bad arguments are a usage error, before any codex call', async (t) => {
   assert.equal((await s.review('--issue', 'two')).code, 2)
   assert.equal((await runCli(['codex-review'], { cwd: s.repo })).code, 2)
   assert.deepEqual(await s.execs(), [])
+})
+
+// A zero-finding round: the Orchestrator keeps no finding.
+const ZERO_OUTPUT = {
+  payload: {
+    event: 'COMMENT',
+    body: '## Review pipeline: round 1\n\n| ID | Where | Axis | Severity | Pairs | Finding |\n| --- | --- | --- | --- | --- | --- |\n\nDropped: 0.',
+    comments: [],
+  },
+  ledger: [],
+  report: 'kept 0, dropped 0',
+}
+
+for (const issue of [[], ['--issue', '2']]) {
+  test(`a zero-finding round ${issue.length === 0 ? 'with no spec' : 'with a spec'} posts no table, starts no re-checker, and records a gate pass at head`, async (t) => {
+    const s = await setup(t, { codex: withOrchestrator(JSON.stringify(ZERO_OUTPUT)) })
+    const { code, stdout, stderr } = await s.review(...issue)
+    assert.equal(stderr, '')
+    assert.equal(code, 0)
+    const out = JSON.parse(stdout)
+    assert.deepEqual([out.posted, out.gate, out.problems], [true, 'pass', []])
+
+    const posts = await s.posts()
+    assert.equal(posts.length, 1)
+    const sent = JSON.parse(posts[0]!.stdin)
+    assert.deepEqual(sent.comments, [])
+    assert.doesNotMatch(sent.body, /\| ID \|/)
+    assert.match(sent.body, /\nNo findings\.\n\nDropped: 0\./)
+
+    const state = JSON.parse((await s.runState('read', '--pr', '13')).stdout)
+    assert.deepEqual(state.gates, [{ round: 1, commit: s.sha, result: 'pass' }])
+    for (const phase of ['review-posted', 'adjudicated', 'rechecked', 'body-rewritten']) {
+      const advanced = await s.runState('advance', '--pr', '13', phase)
+      assert.equal(advanced.code, 0, `${phase}: ${advanced.stderr}`)
+    }
+    const roles = (await s.execs()).map((c) => flag(c, '-o').split('/').pop())
+    assert.ok(roles.every((o) => o === 'orchestrator-output.json' || /^reviewer-p\d-(standards|spec)\.json$/.test(o ?? '')), roles.join(', '))
+    assert.ok(!roles.some((o) => o?.startsWith('recheck')))
+    assert.equal((await s.posts()).length, 1)
+  })
+}
+
+// An empty ledger with an inline comment, in the diff or out of it, is an
+// inconsistent Orchestrator output: checked before the anchor move.
+for (const [where, comment] of [['in the diff', COMMENT], ['out of the diff', { ...COMMENT, line: 12 }]] as const) {
+  test(`an empty ledger with an inline comment ${where} is refused: nothing is posted and no pass is recorded`, async (t) => {
+    const s = await setup(t, { codex: withOrchestrator(JSON.stringify({ ...ZERO_OUTPUT, payload: { ...ZERO_OUTPUT.payload, comments: [comment] } })) })
+    const { code, stdout, stderr } = await s.review()
+    assert.equal(code, 1)
+    assert.equal(stdout, '')
+    assert.equal(stderr, 'review.ts codex-review: the Orchestrator returned an empty ledger but 1 inline comment(s): every posted finding needs a ledger entry, so nothing was posted\n')
+    assert.deepEqual(await s.posts(), [])
+    await assert.rejects(access(join(s.runDir, 'review-payload.json')))
+    await assert.rejects(access(join(s.runDir, 'findings.json')))
+    assert.deepEqual(JSON.parse((await s.runState('read', '--pr', '13')).stdout).gates, [])
+  })
+}
+
+test('a spec-less run removes a spec.md an earlier round left, so post-review expects no Spec reviewers', async (t) => {
+  const s = await setup(t, { codex: withOrchestrator(JSON.stringify(ZERO_OUTPUT)) })
+  await writeFile(join(s.runDir, 'spec.md'), '# #2: Spec\n')
+  const { code, stdout, stderr } = await s.review()
+  assert.equal(stderr, '')
+  assert.equal(code, 0)
+  assert.equal(JSON.parse(stdout).gate, 'pass')
+  await assert.rejects(access(join(s.runDir, 'spec.md')))
 })

@@ -2,9 +2,9 @@
 
 `review-pipeline` gives one open pull request an independent review on GitHub. An **Orchestrator** pins the PR head commit, runs N **Reviewer pairs** on it, checks every finding against the code, merges the duplicates, and posts one review with inline ```` ```suggestion ```` blocks and a walkthrough.
 
-The agent that wrote the code never reviews it. The coding [agent](https://www.aihero.dev/ai-coding-dictionary/agent) only pins the PR head, prepares the inputs and launches the Orchestrator. On Claude, the Orchestrator is a fresh [subagent](https://www.aihero.dev/ai-coding-dictionary/subagent) that dispatches the reviewers, verifies what they found, and posts. On Codex, it is a read-only session that verifies and consolidates, and the helper CLI starts the reviewers and posts the result. A finding the Orchestrator cannot verify against the code is dropped, not posted.
+The **Implementer**, the [agent](https://www.aihero.dev/ai-coding-dictionary/agent) that wrote the code, never reviews it. It only pins the PR head, prepares the inputs and launches the Orchestrator. On Claude, the Orchestrator is a fresh [subagent](https://www.aihero.dev/ai-coding-dictionary/subagent) that dispatches the reviewers, verifies what they found, and posts. On Codex, it is a read-only session that verifies and consolidates, and the helper CLI starts the reviewers and posts the result. A finding the Orchestrator cannot verify against the code is dropped, not posted.
 
-Then the coding agent does **Adjudication**: it accepts or refutes every finding, answers each one on the PR (a reply in each inline thread, plus one comment per round with every answer), and lands all accepted fixes of the round in one commit. A fresh re-checker, which is neither the coding agent nor the Orchestrator, then checks every finding against the new code: fixed, validly refuted, or still open. A deterministic gate in the helper CLI reads that result, records it at the re-checked commit, and the pipeline posts it as a re-check comment. With or without the reviewer App, the merge needs a passing gate recorded at the PR's head.
+Then the Implementer does **Adjudication**: it accepts or refutes every finding, answers each one on the PR (a reply in each inline thread, plus one comment per round with every answer), and lands all accepted fixes of the round in one commit. A fresh re-checker, which is neither the Implementer nor the Orchestrator, then checks every finding against the new code: fixed, validly refuted, or still open. A deterministic gate in the helper CLI reads that result, records it at the re-checked commit, and the pipeline posts it as a re-check comment. With or without the reviewer App, the merge needs a passing gate recorded at the PR's head.
 
 When the re-check passes, the pipeline finishes the PR. It rewrites the PR body with [pr](https://aihero.dev/skills-pr) so the body matches the final code, flips the PR from draft to ready, gets the reviewer App's approval when you use one, and builds an explainer page that pitches the change to reviewers and stakeholders. Then it squash-merges the PR, but only when CI is green (or the repo has no PR checks at all) and GitHub reports the PR mergeable. Red CI or a merge conflict stops the pipeline and asks you: it never merges around them.
 
@@ -55,9 +55,17 @@ The steps, the run dir and the posted review are the same on both. Only the laun
 
 No. The Orchestrator consolidates all 2N reviewer outputs into one payload and posts one review. The walkthrough table shows which pairs raised each finding.
 
+**What if the PR has no spec?**
+
+Then no Spec reviewers run, and only the Standards reviewers review the PR. The walkthrough says "no spec available", so you can see why the Spec axis is missing. The spec is the issues the PR closes (`Closes #N`), or for the PR of a whole stack the issue on its `Spec: #N` line. On `runtime: claude` the Orchestrator also looks for a spec file in the repo. On `runtime: codex` a PR has no spec only when neither source names an issue.
+
 **What is a round, and does a failed round review the PR again?**
 
 A round is one Adjudication plus one re-check. When the re-check leaves findings open, the next round answers only those open findings and runs a new re-check. It does not start a new full review, so the goalposts do not move between rounds.
+
+**What if the review finds nothing?**
+
+Then the round ends at the review. The walkthrough says "No findings." and has no empty table, and no high-effort re-checker runs to grade zero items. The helper CLI first checks that every reviewer's output is there and valid, because a reviewer whose brief stopped early also returns nothing. Only then does it post the review and record the round's pass at the reviewed commit, which the merge gate needs. If an output is missing or broken, it posts nothing and names the reviewer, so you can run the round again.
 
 **What happens when the rounds run out?**
 
@@ -79,13 +87,21 @@ It stays on your machine, in the run dir (`hero-pocock/pr-<N>/explainer.html` in
 
 A plain `/review-pipeline <PR>` merges at the end. [implement-spec-stack](https://github.com/contract-hero/hero-pocock/blob/main/docs/engineering/implement-spec-stack.md) starts the run with `--mode layer` or `--mode stack-final`, which stop earlier: a stack layer stops once the PR is ready, and the whole-stack PR stops after the explainer, because the stack lands its layers itself. Those modes are for the stack; a plain run has no "do not merge" switch yet. To keep the PR open, tell the agent so before it reaches the merge.
 
-**Can the coding agent mark its own fixes as done?**
+**Can the Implementer mark its own fixes as done?**
 
-No. The coding agent writes the fixes and the refutations, so a fresh re-checker grades them, and the gate is a fixed check, not a judgment: every finding has a decision, every posted finding is in the ledger, the re-check covers exactly the ledger, and nothing is open.
+No. The Implementer writes the fixes and the refutations, so a fresh re-checker grades them, and the gate is a fixed check, not a judgment: every finding has a decision, every posted finding is in the ledger, the re-check covers exactly the ledger, and nothing is open.
 
 **What if the session dies halfway through?**
 
 Run it again on the same PR. The run state records the last completed step and the id of the posted review, so a re-run on the same PR and commit resumes and does not post a second review. If the state file is lost, the pipeline still finds its own review on GitHub by a hidden marker, and it trusts that marker only in a review from the same account on the same commit.
+
+**What if the Orchestrator ends before its reviewers report?**
+
+On Claude, the Orchestrator starts its reviewers in the foreground and waits for all of them, so this should not happen. If it ends anyway with reviewer outputs missing, the Implementer resumes the same Orchestrator with a message and does not start a new one, because a new one would lose the reviewers that still run. If outputs are still missing after that one resume, the pipeline stops and names the missing reviewers.
+
+**What if a reviewer returns broken output?**
+
+The round stops before any consolidation and posts nothing. The report names each reviewer whose output is missing, is not JSON, or does not match the findings schema. A review that lost one reviewer could look cleaner than it is, so the pipeline never posts a partial one. One code fence around otherwise good JSON is a common slip: it is removed and the output counts. On Codex, a re-run starts only the reviewers that failed and keeps the others.
 
 **Does it post as a bot?**
 
@@ -101,7 +117,7 @@ Yes. With `runtime: codex`, every Codex call goes through the helper CLI, which 
 
 **Does the Codex runtime need Claude Code?**
 
-No. The coding agent needs a shell, `git`, `node`, `gh` and `codex`, and nothing else. A Codex session can run the whole pipeline.
+No. The Implementer needs a shell, `git`, `node`, `gh` and `codex`, and nothing else. A Codex session can run the whole pipeline.
 
 **How do I see what a helper CLI subcommand takes?**
 
@@ -114,7 +130,7 @@ Run `review.ts help` for the list of every subcommand with its one-line summary.
 - Running it again on the same PR and commit posts nothing new.
 - Every inline finding gets an `ACCEPT:` or `REFUTE:` reply in its thread, and each round gets one adjudication comment that also covers the walkthrough items.
 - Each round with accepted fixes adds exactly one `apply review round <R>` commit.
-- Each round ends with a re-check comment that lists every finding as fixed, refutation accepted, or open.
+- Each round ends with a re-check comment that lists every finding as fixed, refutation accepted, or open. A round with zero findings ends at its review, which says "No findings.", and gets no re-check comment.
 - With the App, the PR goes ready first and then gets one App approval on the re-checked commit, and a run that runs out of rounds ends with one App request for changes.
 - After a passing re-check, the PR body shows the `pr` template for the final code and still closes its issues, the PR is ready for review, and it carries one "Explainer (local, not published)" comment.
 - The PR lands as one squash commit only after its checks pass. A red check or a conflict gets a question from the agent, not a merge.

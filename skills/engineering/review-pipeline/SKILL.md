@@ -5,22 +5,24 @@ description: "Review, gate and merge one open pull request with an independent O
 
 # Review pipeline
 
-Take one pull request from draft to merge. Four roles share the work: the **coding agent** (you, the session that runs this skill), the **Orchestrator**, the **Reviewer pairs**, and the re-checker. The Orchestrator, never you, reviews the code and posts the review. You prepare its inputs, launch it, check the result, and later answer the review. Read `GLOSSARY.md` for these terms if the repo has one.
+Take one pull request from draft to merge. Four roles share the work: the **Implementer** (you, the session that runs this skill), the **Orchestrator**, the **Reviewer pairs**, and the re-checker. The Orchestrator, never you, reviews the code and posts the review. You prepare its inputs, launch it, check the result, and later answer the review. Read `GLOSSARY.md` for these terms if the repo has one.
 
-The argument is the PR number (or URL), then an optional `--mode layer|stack-final` (default `single`). Bare `#42` is a PR here. If no PR is given, ask for one. The mode is for `implement-spec-stack`, which runs this skill on each layer of a stack (`layer`) and on the PR of the whole stack (`stack-final`); **Finish** says what each mode skips. A resumed run keeps the mode it was created with.
+The argument is the PR number (or URL), then an optional `--mode layer|stack-final` (default `single`). Bare `#42` is a PR here. If no PR is given, ask for one. The mode is for `implement-spec-stack`, which runs this skill on each layer of a stack (`layer`) and on the PR of the whole stack (`stack-final`); **Finish** says what each mode skips. A resumed run keeps the mode it was created with. In a stack, only the top layer bumps the plugin version, with one bump for the whole stack, so in `layer` mode the Spec reviewers do not flag a missing bump ([reviewer-brief.md](./reviewer-brief.md), **Spec axis**).
 
 ## Who does what
 
 | Role | Who | Does | Never |
 | --- | --- | --- | --- |
-| Coding agent | you | runs this skill: config, resume, fixed point, Orchestrator launch, checks; later Adjudication and Finish | reviews, verifies or drops findings, posts the review, grades its own answers |
+| Implementer | you | runs this skill: config, resume, fixed point, Orchestrator launch, checks; later Adjudication and Finish | reviews, verifies or drops findings, posts the review, grades its own answers |
 | Orchestrator | one fresh agent per round | writes the reviewer briefs, dispatches the 2N reviewers, verifies, consolidates, posts one review | edits the repo, commits, pushes, approves, changes the draft state |
-| Reviewer | 2N fresh read-only agents, one Standards and one Spec per pair | reviews the diff at the fixed point, returns findings JSON | posts, edits, spawns agents |
+| Reviewer | 2N fresh read-only agents, one Standards and one Spec per pair (no Spec reviewer when there is no spec) | reviews the diff at the fixed point, returns findings JSON | posts, edits, spawns agents |
 | Re-checker | one fresh read-only agent | confirms each finding is fixed or validly refuted | is you or this round's Orchestrator |
 
-Every brief opens with a sanity header: "You are the <role> for PR #N of O/R. You do not run the review pipeline. Do not invoke code-review or spawn agents" (the Orchestrator's header instead names the reviewers it may spawn). A brief like that in your own context was mis-delivered: you stay the coding agent, and the on-disk run state says where the run is.
+Every brief opens with a sanity header: "You are the <role> for PR #N of O/R. You do not run the review pipeline. Do not invoke code-review or spawn agents" (the Orchestrator's header instead names the reviewers it may spawn). A brief like that in your own context was mis-delivered: you stay the Implementer, and the on-disk run state says where the run is.
 
-If the Orchestrator cannot do its job (it dies, or it cannot start sub-agents), relaunch it once. If it fails again, stop and tell the user. Never dispatch the reviewers or verify findings yourself: that breaks the independence the pipeline exists for.
+If the Orchestrator ends with reviewer outputs missing (on `runtime: claude`, it returned and posted no review, and fewer `<run dir>/reviewer-p<k>-<axis>.json` files exist than the reviewers it had to start), its reviewers can still be running. Do not start a new Orchestrator: a new one loses those reviewers. Resume the same Orchestrator with a message that names the missing outputs and tells it to wait for every reviewer, then finish its brief from **Collect**. Do this once. If it ends with outputs still missing, or it cannot be resumed, stop and tell the user, with the names of the missing reviewers. Never start a replacement Orchestrator in this session while its reviewers can still run.
+
+If the Orchestrator cannot do its job and none of its reviewers can still run (it cannot start sub-agents, or every reviewer output is in the run dir and it posted no review), relaunch it once. If it fails again, stop and tell the user. Never dispatch the reviewers or verify findings yourself: that breaks the independence the pipeline exists for.
 
 ## Helper CLI
 
@@ -28,7 +30,7 @@ The helper CLI is in the `scripts/` folder beside this SKILL.md. Below, `review.
 
 Run `review.ts help` to list every subcommand with its one-line summary, and `review.ts <subcommand> --help` to see what one subcommand takes. Both print to stdout and exit 0. Both read the one usage table in the CLI, so trust them over a usage line you remember. The run state lives in `<git common dir>/hero-pocock/pr-<N>/`. The `stack` subcommand serves `implement-spec-stack`, and its SKILL.md says how to use it.
 
-`run-state advance` moves the run one step at a time, in the order of **Resume**'s table and **Finish**'s modes. It refuses a skipped step, and a step whose record is missing: `review-posted` needs the round's review, `rechecked` the round's re-check gate at `head_sha`, `body-rewritten` a passing gate there, `verdict-posted` the App's APPROVE there. Advancing to the phase the run is already at does nothing, so a resumed step can repeat it. `run-state set` changes only `round`, `head_sha` and `explainer`: `reviewer_login` is fixed at `create`.
+`run-state advance` moves the run one step at a time, in the order of **Resume**'s table and **Finish**'s modes. It refuses a skipped step, and a step whose record is missing: `review-posted` needs the round's review, `rechecked` the round's gate at `head_sha` (from the re-check, or from the review of a zero-finding round), `body-rewritten` a passing gate there, `verdict-posted` the App's APPROVE there. Advancing to the phase the run is already at does nothing, so a resumed step can repeat it. `run-state set` changes only `round`, `head_sha` and `explainer`: `reviewer_login` is fixed at `create`.
 
 Everything the helper CLI posts (reviews, replies, comments) goes through a scan for secret shapes first, and a match posts nothing. Agent text that holds the pipeline's hidden marker (`hero-pocock:review-pipeline`) is refused too, because only the CLI writes it. The scan is defence in depth, not a guarantee: an agent can encode a secret so that no scanner sees it. The real boundary is the read-only sandbox with no network and no gh token that every agent runs in on `runtime: codex` (**Codex runtime**). What is left is the risk of a secret encoded into a posted review.
 
@@ -62,10 +64,10 @@ Run `review.ts run-state read --pr N`.
 | `phase` | Next step |
 | --- | --- |
 | `created` | **Review round** |
-| `review-dispatched` | the Orchestrator was launched and may have posted. Run **Posting**'s check first; if the review is there, `advance review-posted`; if not, relaunch the Orchestrator (reviewer outputs in the run dir that parse are reused) |
-| `review-posted` | **Adjudication** for the recorded `round`. In round 2 and later, that means only what `recheck-r<round-1>.json` left open |
-| `adjudicated` | **Re-check**. A `recheck-r<round>.json` that parses is reused: do not dispatch the re-checker again |
-| `rechecked` | run **Re-check** step 4's `post-review` again: it posts nothing new and prints the same `gate`. Then step 5 or 6 |
+| `review-dispatched` | the Orchestrator was launched and may have posted. Run **Posting**'s check first; if the review is there, `advance review-posted`. If not, and this session launched that Orchestrator, apply **Who does what**: resume it once when reviewer outputs are missing, and stop and tell the user when they are still missing after that. In a new session the old Orchestrator is gone: relaunch it (reviewer outputs in the run dir that are valid, as **Consolidation** step 1 says, are reused) |
+| `review-posted` | **Adjudication** for the recorded `round`. In round 2 and later, that means only what `recheck-r<round-1>.json` left open. A zero-finding round (**Posting**) skips Adjudication and Re-check: `advance adjudicated`, `advance rechecked`, then **Finish** |
+| `adjudicated` | **Re-check**. A `recheck-r<round>.json` that parses is reused: do not dispatch the re-checker again. A zero-finding round: `advance rechecked`, then **Finish**, with no re-check post |
+| `rechecked` | run **Re-check** step 4's `post-review` again: it posts nothing new and prints the same `gate`. Then step 5 or 6. A zero-finding round has no re-check post: go to **Finish** |
 | `body-rewritten`, `ready`, `verdict-posted`, `explained`, `merged` | **Finish**, at the step after that phase, as the run's `mode` says |
 | `complete`, `aborted`, `stopped` | the last run ended (`stopped`: `max_rounds` rounds failed, or the re-checker failed twice). Tell the user; start a new run only if they ask (`create` over a terminal state starts fresh) |
 
@@ -90,23 +92,24 @@ For a new run: `review.ts run-state create --pr N --repo O/R --base <baseRefName
 
 You write one brief and launch one agent: the Orchestrator. The Orchestrator does everything else in this section.
 
-**You:** fill the template [orchestrator-brief.md](./orchestrator-brief.md) and save it to `<run dir>/orchestrator-brief.md`. For the spec line, use the issues the PR closes (`gh pr view N --json closingIssuesReferences,body`, then `Closes #N` or `Fixes #N` in the body and commit messages). In `stack-final` mode the PR closes nothing: use the spec issue that its body names on the `Spec: #<n>` line. Then `review.ts run-state advance --pr N review-dispatched`, and launch the Orchestrator as one fresh sub-agent with model `<orchestrator.agent_model>` and effort `<orchestrator.effort>`, giving it the brief's contents. Wait for it in the foreground. With `runtime: codex`, fill no template and launch no sub-agent: after `advance review-dispatched`, run `codex-review` as **Codex runtime** says.
+**You:** fill the template [orchestrator-brief.md](./orchestrator-brief.md) and save it to `<run dir>/orchestrator-brief.md`. For the spec line, use the issues the PR closes (`gh pr view N --json closingIssuesReferences,body`, then `Closes #N` or `Fixes #N` in the body and commit messages). In `stack-final` mode the PR closes nothing: use the spec issue that its body names on the `Spec: #<n>` line. Write those issues (`gh issue view <n>`, title and body) to `<run dir>/spec.md`. With no spec issue, delete `<run dir>/spec.md` if an earlier run left one: its presence tells `post-review` that the round has Spec reviewers (**Posting**). If the Orchestrator then finds a spec in another source, it writes that spec to `<run dir>/spec.md` itself (step 1 below). Then `review.ts run-state advance --pr N review-dispatched`, and launch the Orchestrator as one fresh sub-agent with model `<orchestrator.agent_model>` and effort `<orchestrator.effort>`, giving it the brief's contents. Wait for it in the foreground. With `runtime: codex`, fill no template and launch no sub-agent: after `advance review-dispatched`, run `codex-review` as **Codex runtime** says.
 
 **The Orchestrator:**
 
-1. **Sources.** The spec: the issues in the brief (`gh issue view <n>`), else the sources of the section "### 2. Identify the spec source" of `code-review`'s SKILL.md. The standards: the files found the way the section "### 3. Identify the standards sources" of `code-review`'s SKILL.md says. `code-review`'s SKILL.md is in the `code-review` folder beside this skill's folder.
+1. **Sources.** The spec: the issues in the brief (`gh issue view <n>`), else the sources of the section "### 2. Identify the spec source" of `code-review`'s SKILL.md, without its step that asks the user: when those sources give nothing, there is no spec. When the spec comes from one of those sources and not from the brief's issues, write its text to `<run dir>/spec.md` before you dispatch the Spec reviewers. The standards: the files found the way the section "### 3. Identify the standards sources" of `code-review`'s SKILL.md says. `code-review`'s SKILL.md is in the `code-review` folder beside this skill's folder.
 2. **Briefs.** One per reviewer, from [reviewer-brief.md](./reviewer-brief.md):
    - Standards: the standards sources, the smell baseline pasted in full, the Standards brief from `code-review`'s section "### 4. Spawn both sub-agents in parallel", and [standards-bug-axis.md](./standards-bug-axis.md) pasted in full.
-   - Spec: the spec contents and the Spec brief from the same `code-review` section. No spec: no Spec reviewers; the walkthrough says "no spec available".
+   - Spec: the spec contents and the Spec brief from the same `code-review` section. No spec: no Spec reviewers, only the N Standards reviewers; the walkthrough says "no spec available".
+   - The Standards briefs say nothing about the spec, with or without one.
    - Both: the JSON output contract of [findings.schema.json](./findings.schema.json), which replaces the "Under 400 words" prose report.
 3. **Pair diversity.** The briefs of all pairs are the same except the focus order. With F changed files, pair k (1 to N) gets the file list rotated left by `floor((k-1) * F / N)`, the Standards checklist (documented standards, smells, bugs, silent failures, test gaps) rotated left by k-1, and the spec's acceptance criteria rotated left by k-1. Every reviewer still sees the whole diff.
-4. **Dispatch.** All 2N reviewers in parallel, as fresh read-only sub-agents with model `<reviewer.agent_model>` and effort `<reviewer.effort>`. Each one's final message is the findings JSON; write it verbatim to `<run dir>/reviewer-p<k>-<axis>.json`. With `runtime: codex`, dispatch them as **Codex runtime** says.
+4. **Dispatch.** All 2N reviewers (N with no spec) in parallel, in the foreground, as fresh read-only sub-agents with model `<reviewer.agent_model>` and effort `<reviewer.effort>`. The Orchestrator waits until every reviewer is done before it collects, and it does not end while a reviewer runs. A reviewer that failed to start or ended with no final message is done, as a failed reviewer. Each one's final message is the findings JSON, bare (the reviewer brief asks for no code fence). Write that JSON object to `<run dir>/reviewer-p<k>-<axis>.json`; if one code fence wraps it, remove that fence first. With `runtime: codex`, dispatch them as **Codex runtime** says.
 
 ## Consolidation
 
 The Orchestrator turns 2N outputs into one review. Consolidation is across pairs, never across axes: each finding keeps its axis label.
 
-1. **Collect.** A missing or unparseable output is a failed reviewer, named in the walkthrough. Never invent its findings. All reviewers failed: post nothing and report.
+1. **Collect.** Check the output of every reviewer the round started (N with no spec, else 2N) before anything else. A valid output is one JSON object that matches [findings.schema.json](./findings.schema.json). One code fence around the whole object is a formatting slip: remove it and use the JSON. Any other text (prose, text around the fence, two fences) is invalid. If any expected output is missing or invalid, the round stops: no consolidation, nothing is posted, and the report names each of those reviewers. Never invent a reviewer's findings.
 2. **Group.** Per file, findings whose line ranges overlap or are within 3 lines of each other form one group.
 3. **Verify.** Check each group against the code at the fixed point (`git show <head_sha>:<path>`, the diff). Drop it, with a one-line reason, when it cannot be verified, cannot happen, is on lines this PR did not touch, is intended behaviour, or is a nitpick. A finding you cannot verify is dropped, never posted.
 4. **Split.** A group that mixes unrelated concerns becomes one finding per concern.
@@ -118,7 +121,7 @@ The Orchestrator turns 2N outputs into one review. Consolidation is across pairs
 [{ "id": "F1", "where": "src/a.ts:42", "axis": "standards", "severity": "high", "pairs": "2/2", "finding": "<one line>", "decision": "", "reason": "" }]
 ```
 
-`decision` and `reason` stay empty: Adjudication fills them.
+`decision` and `reason` stay empty: Adjudication fills them. No kept finding: the ledger is `[]`. That makes the round a **zero-finding round** (**Posting**).
 
 ## Posting
 
@@ -136,14 +139,15 @@ The Orchestrator posts once per round, with one payload for all pairs. Payload `
 ```
 
 - Each inline body starts with `**F<n>**` and its labels. A ```` ```suggestion ```` block holds the exact replacement for the anchored lines; leave it out when the finding has no clean replacement. A multi-line anchor adds `start_line` and `start_side`.
-- The walkthrough body: `## Review pipeline: round <R>`; one line naming the runtime, the models and efforts, N, and the fixed point `<sha7>`; a table `ID | Where | Axis | Severity | Pairs | Finding`; the findings without an inline anchor; the dropped count with reasons; the failed reviewers.
+- The walkthrough body: `## Review pipeline: round <R>`; one line naming the runtime, the models and efforts, N, and the fixed point `<sha7>`; a table `ID | Where | Axis | Severity | Pairs | Finding`; the findings without an inline anchor; the dropped count with reasons. A zero-finding round has no table and no inline comments: write the line `No findings.` in place of the table.
 - Post: `review.ts post-review --repo O/R --pr N --commit <head_sha> --round <R> --kind review --payload <run dir>/review-payload.json`. It adds a hidden marker, records the review id in the run state, and refuses to post a second review for the same round. Exit 1 on a 422: move the finding GitHub names into the walkthrough and post once more.
+- **Zero-finding round.** When `<run dir>/findings.json` is `[]`, `post-review` is also the gate of the round, because no re-checker runs. Before it posts, it checks the output of every reviewer of the round as **Consolidation** step 1 says: the N Standards reviewers, and the N Spec reviewers too when `<run dir>/spec.md` exists (**Review round**) or any `<run dir>/reviewer-p<k>-spec.json` exists. It never reads this from the payload. If any output is missing or invalid, it exits 1, names each of those reviewers, posts nothing and records no pass. It also exits 1 with no pass when the payload has an inline comment, or when GitHub shows an inline finding in a review of this run (on a re-run, that includes the review already posted). Otherwise it replaces a findings table that is still in the walkthrough with `No findings.` (or adds that line when the walkthrough has neither), posts, and records a gate pass at `head_sha`. It also writes `<run dir>/recheck-r<R>.json` with no items, for the verdict and the stack landing. An existing empty one stays as it is; a file with items comes from another run and is replaced. Its output adds `"gate": "pass"`.
 
-**You, after the Orchestrator returns:** confirm the review exists. `review.ts run-state read --pr N reviews` lists a `kind: review` entry for this round, and `gh api repos/O/R/pulls/N/reviews` shows that id. Then `review.ts run-state advance --pr N review-posted`. If there is no review, read `<run dir>/orchestrator-report.md` and apply **Who does what**: relaunch once, then stop and tell the user.
+**You, after the Orchestrator returns:** confirm the review exists. `review.ts run-state read --pr N reviews` lists a `kind: review` entry for this round, and `gh api repos/O/R/pulls/N/reviews` shows that id. Then `review.ts run-state advance --pr N review-posted`. If the `post-review` output has `"gate": "pass"` (or `findings.json` is `[]` and `review.ts run-state read --pr N gates` has a pass at `head_sha`), the round has zero findings: run `advance adjudicated` and `advance rechecked`, and go to **Finish**. Do not reply, commit, snapshot, or start a re-checker. If there is no review, read `<run dir>/orchestrator-report.md` (it names each reviewer whose output is missing or invalid), count the reviewer outputs in the run dir, and apply **Who does what**: when reviewer outputs are missing, resume the Orchestrator once, and stop and tell the user, with the missing reviewers, when they are still missing after that. Otherwise relaunch once, then stop and tell the user.
 
 ## Adjudication
 
-You answer the review as the PR author: you accept or refute each finding, and you land the accepted fixes. A round is one Adjudication plus one re-check. Round 1 answers the review the Orchestrator posted; a later round answers only what the last re-check left open, with no new review. `<R>` below is `review.ts run-state read --pr N round`.
+You answer the review as the PR author: you accept or refute each finding, and you land the accepted fixes. A zero-finding round skips this section and **Re-check** (**Posting**). A round is one Adjudication plus one re-check. Round 1 answers the review the Orchestrator posted; a later round answers only what the last re-check left open, with no new review. `<R>` below is `review.ts run-state read --pr N round`.
 
 1. **Read the review from GitHub**, not from memory: `gh api --paginate repos/O/R/pulls/N/reviews` and `gh api --paginate repos/O/R/pulls/N/comments`. The ledger `<run dir>/findings.json` holds one entry per finding the Orchestrator posted.
 2. **Decide.** Round 1: every ledger entry. Round 2 and later: the entries that `<run dir>/recheck-r<R-1>.json` left `open`. Set `decision` to `ACCEPT` or `REFUTE`, and `reason` to one line: what you changed, or why the finding is wrong, with the code or spec line that shows it. Judge each finding on its merits: refute a wrong or low-value finding, and never accept one only to end the round. A `MISSING-<n>` item is a posted finding with no ledger entry: add the entry, with the `F<n>` id the review gave it, and decide it.
@@ -156,13 +160,13 @@ On a resume in this section, keep the decisions already in the ledger and a push
 
 ## Re-check
 
-A fresh re-checker confirms each finding is fixed or validly refuted. It is never you and never this round's Orchestrator: you wrote the fixes and the refutations, so you never grade them.
+A zero-finding round starts no re-checker: the review's post recorded its pass (**Posting**). Otherwise, a fresh re-checker confirms each finding is fixed or validly refuted. It is never you and never this round's Orchestrator: you wrote the fixes and the refutations, so you never grade them.
 
 1. **Snapshot** what the PR shows, one JSON object per line:
 
 ```sh
-for path in pulls/N/reviews pulls/N/comments issues/N/comments; do
-  gh api --paginate --jq '.[]' "repos/O/R/$path"
+for endpoint in pulls/N/reviews pulls/N/comments issues/N/comments; do
+  gh api --paginate --jq '.[]' "repos/O/R/$endpoint"
 done > <run dir>/posted-r<R>.jsonl
 ```
 
@@ -205,7 +209,7 @@ Without the App, skip step 3: `--kind verdict` exits 1, because the PR author ca
 
 ## Finish
 
-Finish starts after a passing re-check gate. Each step ends with a `run-state advance`, so a resumed run starts at the step after the last one done and repeats nothing, and `advance` refuses a step out of order. The run's `mode` (`review.ts run-state read --pr N mode`) sets how far Finish goes:
+Finish starts after a passing gate at `head_sha`: a passing re-check, or the pass of a zero-finding round. Each step ends with a `run-state advance`, so a resumed run starts at the step after the last one done and repeats nothing, and `advance` refuses a step out of order. The run's `mode` (`review.ts run-state read --pr N mode`) sets how far Finish goes:
 
 | `mode` | Steps |
 | --- | --- |
@@ -215,7 +219,7 @@ Finish starts after a passing re-check gate. Each step ends with a `run-state ad
 
 The caller sets the mode when the run starts (`run-state create --mode`). `review.ts merge` refuses every mode except `single`.
 
-1. **Rewrite the PR body.** Call the Skill tool with "pr" and write the body for the final code: the diff `git diff <base>...<head_sha>`, with the review rounds as evidence. Keep every closing line (`Closes #N`, `Fixes #N`) of the old body (`gh pr view N --json body`) at the end of the new one: without them, the issues stay open after the merge. Save the body to `<run dir>/pr-body.md`, run `gh pr edit N --repo O/R --body-file <run dir>/pr-body.md`, then `review.ts run-state advance --pr N body-rewritten`. It needs a passing re-check gate recorded at `head_sha`.
+1. **Rewrite the PR body.** Call the Skill tool with "pr" and write the body for the final code: the diff `git diff <base>...<head_sha>`, with the review rounds as evidence. Keep every closing line (`Closes #N`, `Fixes #N`) of the old body (`gh pr view N --json body`) at the end of the new one: without them, the issues stay open after the merge. Save the body to `<run dir>/pr-body.md`, run `gh pr edit N --repo O/R --body-file <run dir>/pr-body.md`, then `review.ts run-state advance --pr N body-rewritten`. It needs a passing gate recorded at `head_sha`.
 2. **Flip to ready.** If `gh pr view N --repo O/R --json isDraft` shows `true`, run `gh pr ready N --repo O/R`. Then `advance ready`.
 3. **Approve, with the App only.** Post the App's APPROVE as **App identity** step 3 says, then `advance verdict-posted`. Without the App, skip this step.
 4. **Build the explainer** at `<run dir>/explainer.html`. It pitches the change to reviewers and stakeholders who will not read the diff. Make it one self-contained HTML file: inline CSS, and nothing loaded from the network. Content, in this order: a tl;dr in three sentences; one diagram of the change (inline SVG, or boxes and arrows in HTML); what to scrutinize, with `path:line`; what is mechanical; each finding with its decision and reason, from the ledger; the PR link. Never commit or publish it. Then run `review.ts explainer --repo O/R --pr N --file <run dir>/explainer.html`: it records the path and posts one PR comment, "Explainer (local, not published): `<path>`". A re-run posts no second comment. Then `advance explained`.
@@ -236,7 +240,7 @@ With `runtime: codex`, the Orchestrator, every reviewer and the re-checker are `
 - **Effort rejected.** Exit 1 with "Codex rejected <role>.effort": that model does not support that effort. Stop and tell the user to fix the effort in `docs/agents/review.md` or re-run `/setup-review-pipeline`.
 - **Sub-agent models.** `agent_model` is `null` on this runtime. Where a brief names `<reviewer.agent_model>`, write `<reviewer.model>`.
 
-**You, in Review round:** do not fill [orchestrator-brief.md](./orchestrator-brief.md). After `advance review-dispatched`, run from the repo root, with one `--issue` for each spec issue the PR closes (find them as **Review round** says for the spec line: `closingIssuesReferences`, then `Closes #N` or `Fixes #N` in the body and commit messages):
+**You, in Review round:** do not fill [orchestrator-brief.md](./orchestrator-brief.md). After `advance review-dispatched`, run from the repo root, with one `--issue` for each spec issue (find them as **Review round** says for the spec line: `closingIssuesReferences`, then `Closes #N` or `Fixes #N` in the body and commit messages, and in `stack-final` mode the `Spec: #<n>` line of the body):
 
 ```sh
 review.ts codex-review --pr N --issue <n>
@@ -244,9 +248,9 @@ review.ts codex-review --pr N --issue <n>
 
 A round can take 30 minutes or more, longer than most shell time limits, so run the command in the background and wait until it exits. It does this, in order:
 
-1. Fetches the spec issues into `<run dir>/spec.md`. Without `--issue`, the Spec reviewers look for the spec themselves.
-2. Writes the 2N briefs `<run dir>/reviewer-p<k>-<axis>.md`, each with the focus order of **Review round** step 3, and runs all 2N reviewers in parallel, each as its own read-only `codex exec` on `reviewer.model` and `reviewer.effort`, held to [findings.schema.json](./findings.schema.json). Each one writes `<run dir>/reviewer-p<k>-<axis>.json`, and its log is the `.log` beside it. A failed reviewer is named in the report. When every reviewer fails, it stops and posts nothing.
+1. Fetches the spec issues into `<run dir>/spec.md`. Without `--issue` there is no spec: it deletes a `spec.md` an earlier run left, it starts no Spec reviewers, and it adds the line "Spec: no spec available" to the walkthrough. So leave out `--issue` only when you find no spec issue at all, in none of the sources above.
+2. Writes the 2N briefs `<run dir>/reviewer-p<k>-<axis>.md` (only the N Standards briefs without a spec), each with the focus order of **Review round** step 3, and runs all of those reviewers in parallel, each as its own read-only `codex exec` on `reviewer.model` and `reviewer.effort`, held to [findings.schema.json](./findings.schema.json). Each one writes `<run dir>/reviewer-p<k>-<axis>.json`, and its log is the `.log` beside it. One code fence around an output is removed, and the file keeps the bare JSON. Then it checks every expected output as **Consolidation** step 1 says. If any is missing or invalid, it exits 1 before the Orchestrator runs, names those reviewers on stderr and in `orchestrator-report.md`, and posts nothing.
 3. Fills the codex template of [orchestrator-brief.md](./orchestrator-brief.md) into `<run dir>/orchestrator-brief.md` and runs the Orchestrator read-only on `orchestrator.model` and `orchestrator.effort`. Its final message is one JSON object, held to [review.schema.json](./review.schema.json): the payload, the ledger and a report.
-4. Checks that object against the schema. When it does not match, it exits 1 and posts nothing. Then it moves each inline anchor that is not on the right side of the diff into the walkthrough, writes `review-payload.json`, `findings.json` and `orchestrator-report.md`, and runs `post-review --kind review`. `post-review` refuses a payload that looks like it holds a token or a key.
+4. Checks that object against the schema. When it does not match, or its ledger is empty while it has an inline comment, it exits 1 and posts nothing. Then it moves each inline anchor that is not on the right side of the diff into the walkthrough, writes `review-payload.json`, `findings.json` and `orchestrator-report.md`, and runs `post-review --kind review`. With an empty ledger, that post is the gate of a zero-finding round (**Posting**). `post-review` refuses a payload that looks like it holds a token or a key.
 
 It runs only at phase `review-dispatched`, and it refuses once this round's review is posted, so a re-run never runs the Orchestrator again or rewrites the ledger of a posted review: after exit 1 with "already posted", go on with `advance review-posted`. Exit 0: continue with **Posting** ("You, after the Orchestrator returns"). Exit 1: read the message, the logs in the run dir and `orchestrator-report.md`, then apply **Who does what**. A relaunch runs only the reviewers whose output is missing or does not match the schema; it keeps the others.

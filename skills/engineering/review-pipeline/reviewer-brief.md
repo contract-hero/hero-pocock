@@ -1,6 +1,6 @@
 # Reviewer brief template
 
-The Orchestrator fills this template once per reviewer: 2N briefs for N pairs, one Standards and one Spec per pair. Replace every `<...>` placeholder and keep only the axis section that applies. Every pair gets the same text except the focus order. Save each filled brief as `<run dir>/reviewer-p<k>-<axis>.md` before dispatching it.
+The Orchestrator fills this template once per reviewer: 2N briefs for N pairs, one Standards and one Spec per pair. With no spec, it writes only the N Standards briefs: a run with no spec has no Spec reviewers. Replace every `<...>` placeholder and keep only the axis section that applies. A Standards brief says nothing about the spec. Every pair gets the same text except the focus order. Save each filled brief as `<run dir>/reviewer-p<k>-<axis>.md` before dispatching it.
 
 ---
 
@@ -45,11 +45,13 @@ Acceptance criteria, in your focus order: <rotated list of the spec's acceptance
 
 Use these categories: `spec-missing` (asked for, missing or partial), `spec-creep` (not asked for), `spec-wrong` (implemented, but wrong). Quote the spec line in `citation`.
 
-If there is no spec, return no findings and put `no spec available` in `notes`.
+Review mode: <the run's mode, `layer` or `stack-final`; leave this line out in `single` mode>.
+
+Stack version rule: in a stack, only the top layer bumps the plugin or package version, with one bump for the whole stack. In `layer` mode, do not flag a missing version bump: the `stack-final` review checks the top layer's bump.
 
 ## Output
 
-Ignore the word limit in the pasted brief: return findings as JSON, not prose. Your final message is one JSON object and nothing else, matching `findings.schema.json` in the review-pipeline skill folder:
+Ignore the word limit in the pasted brief: return findings as JSON, not prose. Your final message is one JSON object and nothing else, matching `findings.schema.json` in the review-pipeline skill folder. Return bare JSON: no prose before or after it, and no code fence around it. The fence below only shows the shape.
 
 ```json
 {
